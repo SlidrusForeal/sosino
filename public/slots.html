@@ -1,0 +1,10 @@
+<h1>Слоты</h1>
+<button onclick="play()">Крутить</button>
+<p id="slot"></p>
+<script>
+  async function play() {
+    const res = await fetch('/api/slots', { method: 'POST' });
+    const { result } = await res.json();
+    document.getElementById('slot').innerText = result.join(' ');
+  }
+</script>

@@ -1,0 +1,15 @@
+<h1>Рулетка</h1>
+<button onclick="play('red')">Красное</button>
+<button onclick="play('black')">Чёрное</button>
+<p id="outcome"></p>
+<script>
+  async function play(color) {
+    const res = await fetch('/api/roulette', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ color })
+    });
+    const { result, colorResult, won } = await res.json();
+    document.getElementById('outcome').innerText = `🎯 ${result} (${colorResult}) — ${won ? 'Победа!' : 'Проигрыш'}`;
+  }
+</script>

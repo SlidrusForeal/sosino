@@ -1,0 +1,39 @@
+<h1 class="text-2xl font-bold mb-4">Панель администратора</h1>
+<div id="stats" class="space-y-2">
+  <p>Загрузка...</p>
+</div>
+<canvas id="chart" width="400" height="150" class="mt-6"></canvas>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<table class="table-auto border mt-4">
+  <thead><tr><th>Игрок</th><th>Winrate %</th></tr></thead>
+  <tbody id="rating"></tbody>
+</table>
+<script>
+  fetch('/api/admin/rating')
+    .then(res => res.json())
+    .then(rating => {
+      document.getElementById('rating').innerHTML = rating.map(r =>
+        `<tr><td>${r.username}</td><td>${r.winrate}</td></tr>`).join('');
+    });
+</script>
+
+<script>
+  async function loadStats() {
+    const res = await fetch('/api/admin/stats');
+    const data = await res.json();
+    document.getElementById('stats').innerHTML = `
+      <p>👤 Игроков: ${data.players}</p>
+      <p>🎮 Игр сыграно: ${data.totalGames}</p>
+      <p>🏆 Побед: ${data.wins}</p>
+      <p>💀 Поражений: ${data.losses}</p>
+    `;
+    new Chart(document.getElementById('chart'), {
+      type: 'pie',
+      data: {
+        labels: ['Победы', 'Поражения'],
+        datasets: [{ data: [data.wins, data.losses], backgroundColor: ['#16a34a', '#dc2626'] }]
+      }
+    });
+  }
+  loadStats();
+</script>

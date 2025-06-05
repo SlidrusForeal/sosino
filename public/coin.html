@@ -1,0 +1,16 @@
+<h1>Монетка</h1>
+<button onclick="play('heads')">Орёл</button>
+<button onclick="play('tails')">Решка</button>
+<p id="result"></p>
+<script>
+  async function play(choice) {
+    const flip = await fetch('/api/play/coin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ choice })
+    });
+    const { result, near } = await flip.json();
+
+    document.getElementById('result').innerText = `💥 Почти выпало: ${near} → Но выпало: ${result} ❌`;
+  }
+</script>
