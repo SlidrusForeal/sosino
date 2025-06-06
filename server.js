@@ -24,6 +24,9 @@ import path from 'path';
 import rateLimit from 'express-rate-limit';
 import { body, validationResult } from 'express-validator';
 
+// --- Инициализация приложения ---
+const app = express();
+
 // --- Инициализация Redis клиента ---
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL,
@@ -413,9 +416,6 @@ passport.use(new DiscordStrategy({
   }
 }));
 
-// --- Инициализация приложения ---
-const app = express();
-
 // Настройка доверия прокси
 app.set('trust proxy', 1);
 
@@ -792,6 +792,24 @@ app.get('/api/transactions', ensureAuth, async (req, res, next) => {
 app.use((err, req, res, next) => {
   console.error('Global error:', err);
   if (!res.headersSent) res.status(500).json({ error: 'Internal server error' });
+});
+
+// Оптимизируем callback
+app.get('/auth/discord/callback', (req, res, next) => {
+  passport.authenticate('discord', { failureRedirect: '/?error=auth_failed' })(req, res, next);
+}, async (req, res) => {
+  try {
+    // Сразу сохраняем сессию и редиректим
+    req.session.save(() => {
+      res.redirect('/');
+    });
+  } catch (err) {
+    logUserAction('error', req.user, { 
+      error: 'Auth callback failed',
+      details: err.message
+    });
+    res.redirect('/?error=process_failed');
+  }
 });
 
 app.listen(3000, () => console.log('🎰 Казино запущено на http://localhost:3000'));
