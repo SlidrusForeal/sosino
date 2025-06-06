@@ -14,6 +14,44 @@ class SupabaseStore extends session.Store {
   constructor() {
     super();
     this.ttl = 86400; // 24 hours in seconds
+    this.ensureTableExists();
+    this.startCleanupInterval();
+  }
+
+  async ensureTableExists() {
+    try {
+      // Check if table exists
+      const { error: checkError } = await supabaseAdmin
+        .from('sessions')
+        .select('count')
+        .limit(1);
+
+      if (checkError && checkError.code === '42P01') { // Table doesn't exist
+        console.log('Creating sessions table...');
+        const { error: createError } = await supabaseAdmin.rpc('create_sessions_table');
+        if (createError) {
+          console.error('Error creating sessions table:', createError);
+        } else {
+          console.log('Sessions table created successfully');
+        }
+      }
+    } catch (err) {
+      console.error('Error ensuring sessions table exists:', err);
+    }
+  }
+
+  startCleanupInterval() {
+    // Run cleanup every hour
+    setInterval(async () => {
+      try {
+        const { error } = await supabaseAdmin.rpc('cleanup_expired_sessions');
+        if (error) {
+          console.error('Error cleaning up expired sessions:', error);
+        }
+      } catch (err) {
+        console.error('Error in cleanup interval:', err);
+      }
+    }, 60 * 60 * 1000); // 1 hour
   }
 
   async get(sid, callback) {
