@@ -9,12 +9,56 @@ import fs from 'fs';
 import crypto from 'crypto';
 import axios from 'axios';
 import { Redis } from '@upstash/redis';
+import { EventEmitter } from 'events';
 
 // Initialize Redis client
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL,
   token: process.env.UPSTASH_REDIS_REST_TOKEN,
 });
+
+// Create custom session store
+class RedisSessionStore extends EventEmitter {
+  constructor() {
+    super();
+  }
+
+  async get(sid) {
+    try {
+      const data = await redis.get(`sess:${sid}`);
+      return data ? JSON.parse(data) : null;
+    } catch (err) {
+      this.emit('disconnect', err);
+      return null;
+    }
+  }
+
+  async set(sid, session) {
+    try {
+      await redis.set(`sess:${sid}`, JSON.stringify(session), {
+        ex: 24 * 60 * 60 // 24 hours in seconds
+      });
+    } catch (err) {
+      this.emit('disconnect', err);
+    }
+  }
+
+  async destroy(sid) {
+    try {
+      await redis.del(`sess:${sid}`);
+    } catch (err) {
+      this.emit('disconnect', err);
+    }
+  }
+
+  async touch(sid, session) {
+    try {
+      await this.set(sid, session);
+    } catch (err) {
+      this.emit('disconnect', err);
+    }
+  }
+}
 
 // Debug log for SPWorlds credentials
 console.log('SPWorlds Credentials:', {
@@ -30,6 +74,7 @@ app.use(express.json());
 
 // 2) Сессии
 app.use(session({
+  store: new RedisSessionStore(),
   secret: process.env.SESSION_SECRET || 'your-secret-key',
   resave: false,
   saveUninitialized: false,
@@ -38,20 +83,6 @@ app.use(session({
     httpOnly: true,
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
     sameSite: 'lax'
-  },
-  store: {
-    async get(sid) {
-      const data = await redis.get(`sess:${sid}`);
-      return data ? JSON.parse(data) : null;
-    },
-    async set(sid, session) {
-      await redis.set(`sess:${sid}`, JSON.stringify(session), {
-        ex: 24 * 60 * 60 // 24 hours in seconds
-      });
-    },
-    async destroy(sid) {
-      await redis.del(`sess:${sid}`);
-    }
   }
 }));
 
