@@ -363,42 +363,69 @@ app.get('/auth/discord/callback',
       console.log('SPWorlds user data:', { username, uuid });
 
       // Update user in Supabase
-      const { error } = await supabaseAdmin
+      const { data: updatedUser, error } = await supabaseAdmin
         .from('users')
         .update({
           minecraft_username: username,
           minecraft_uuid: uuid
         })
-        .eq('discord_id', req.user.discord_id);
+        .eq('discord_id', req.user.discord_id)
+        .select()
+        .single();
 
       if (error) {
         console.error('Error updating user:', error);
+        throw error;
       }
 
-      // Set auth cookie
-      res.cookie('auth', {
-        id: req.user.id,
-        discord_id: req.user.discord_id,
-        discord_username: req.user.discord_username
-      }, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        maxAge: 24 * 60 * 60 * 1000, // 24 hours
-        sameSite: 'lax',
-        domain: process.env.NODE_ENV === 'production' ? '.sosmark.ru' : undefined
-      });
+      // Обновляем данные пользователя в сессии
+      req.session.passport.user = updatedUser;
+      req.session.save((err) => {
+        if (err) {
+          console.error('Error saving session:', err);
+          return res.redirect('/');
+        }
+        
+        console.log('Session saved with user data:', {
+          sessionID: req.sessionID,
+          user: req.session.passport.user
+        });
 
-      res.redirect('/');
+        res.redirect('/');
+      });
     } catch (error) {
-      console.error('Error fetching SPWorlds data:', error);
+      console.error('Error in Discord callback:', error);
       res.redirect('/');
     }
   }
 );
 
+// Добавляем middleware для проверки аутентификации
+const ensureAuthenticated = (req, res, next) => {
+  console.log('Checking authentication:', {
+    isAuthenticated: req.isAuthenticated(),
+    session: req.session,
+    user: req.user
+  });
+
+  if (req.isAuthenticated()) {
+    return next();
+  }
+  res.status(401).json({ error: 'Unauthorized' });
+};
+
+// Применяем middleware ко всем защищенным маршрутам
+app.use('/api/*', ensureAuthenticated);
+
 // --- Проверка, кто сейчас залогинен ---
 app.get('/api/auth/user', async (req, res) => {
   try {
+    console.log('Auth user endpoint - Session:', {
+      id: req.sessionID,
+      passport: req.session.passport,
+      user: req.user
+    });
+
     if (!req.isAuthenticated()) {
       console.log('User not authenticated');
       return res.status(401).json({ error: 'Unauthorized' });
@@ -413,7 +440,7 @@ app.get('/api/auth/user', async (req, res) => {
       balance: req.user.balance || 0
     };
 
-    console.log('Sending user data:', userData); // Debug log
+    console.log('Sending user data:', userData);
     return res.json(userData);
   } catch (err) {
     console.error('Error in /api/auth/user:', err);
