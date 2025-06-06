@@ -8,6 +8,23 @@ const { supabase, supabaseAdmin, createTransaction, getBalance, getUser } = requ
 const fs = require('fs');
 const crypto = require('crypto');
 const axios = require('axios');
+const RedisStore = require('connect-redis').default;
+const { createClient } = require('redis');
+
+// Initialize Redis client
+const redisClient = createClient({
+  url: process.env.UPSTASH_REDIS_REST_URL,
+  password: process.env.UPSTASH_REDIS_REST_TOKEN,
+  socket: {
+    tls: true,
+    rejectUnauthorized: false
+  }
+});
+
+redisClient.on('error', (err) => console.error('Redis Client Error:', err));
+redisClient.on('connect', () => console.log('Redis Client Connected'));
+
+redisClient.connect().catch(console.error);
 
 // Debug log for SPWorlds credentials
 console.log('SPWorlds Credentials:', {
@@ -21,14 +38,17 @@ const app = express();
 app.use(express.static('public'));
 app.use(express.json());
 
-// 2) Сессии
+// 2) Сессии с Redis
 app.use(session({
+  store: new RedisStore({ client: redisClient }),
   secret: process.env.SESSION_SECRET || 'your-secret-key',
-  resave: true,
-  saveUninitialized: true,
+  resave: false,
+  saveUninitialized: false,
   cookie: {
     secure: process.env.NODE_ENV === 'production',
-    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    httpOnly: true,
+    maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    sameSite: 'lax'
   }
 }));
 
@@ -70,7 +90,7 @@ passport.deserializeUser(async (discordId, done) => {
 passport.use(new DiscordStrategy({
   clientID: process.env.DISCORD_CLIENT_ID,
   clientSecret: process.env.DISCORD_CLIENT_SECRET,
-  callbackURL: process.env.DISCORD_CALLBACK_URL,
+  callbackURL: process.env.DISCORD_CALLBACK_URL || `${process.env.SITE_URL}/auth/discord/callback`,
   scope: ['identify', 'email']
 }, async (accessToken, refreshToken, profile, done) => {
   try {
@@ -129,38 +149,44 @@ passport.use(new DiscordStrategy({
 // --- Маршрут для авторизации через Discord ---
 app.get('/auth/discord', passport.authenticate('discord'));
 
-app.get('/auth/discord/callback', passport.authenticate('discord', { failureRedirect: '/' }), async (req, res) => {
-  try {
-    // Get user info from SPWorlds API
-    const spworldsResponse = await axios.get(`https://spworlds.ru/api/public/users/${req.user.discord_id}`, {
-      headers: {
-        'Authorization': `Bearer ${Buffer.from(`${process.env.SPWORLDS_CARD_ID}:${process.env.SPWORLDS_TOKEN}`).toString('base64')}`,
-        'Content-Type': 'application/json'
+app.get('/auth/discord/callback', 
+  passport.authenticate('discord', { 
+    failureRedirect: '/',
+    failureMessage: true
+  }), 
+  async (req, res) => {
+    try {
+      // Get user info from SPWorlds API
+      const spworldsResponse = await axios.get(`https://spworlds.ru/api/public/users/${req.user.discord_id}`, {
+        headers: {
+          'Authorization': `Bearer ${Buffer.from(`${process.env.SPWORLDS_CARD_ID}:${process.env.SPWORLDS_TOKEN}`).toString('base64')}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      const { username, uuid } = spworldsResponse.data;
+      console.log('SPWorlds user data:', { username, uuid });
+
+      // Update user in Supabase
+      const { error } = await supabaseAdmin
+        .from('users')
+        .update({
+          minecraft_username: username,
+          minecraft_uuid: uuid
+        })
+        .eq('discord_id', req.user.discord_id);
+
+      if (error) {
+        console.error('Error updating user:', error);
       }
-    });
 
-    const { username, uuid } = spworldsResponse.data;
-    console.log('SPWorlds user data:', { username, uuid });
-
-    // Update user in Supabase
-    const { error } = await supabaseAdmin
-      .from('users')
-      .update({
-        minecraft_username: username,
-        minecraft_uuid: uuid
-      })
-      .eq('discord_id', req.user.discord_id);
-
-    if (error) {
-      console.error('Error updating user:', error);
+      res.redirect('/');
+    } catch (error) {
+      console.error('Error fetching SPWorlds data:', error);
+      res.redirect('/');
     }
-
-    res.redirect('/');
-  } catch (error) {
-    console.error('Error fetching SPWorlds data:', error);
-    res.redirect('/');
   }
-});
+);
 
 // --- Проверка, кто сейчас залогинен ---
 app.get('/api/auth/user', (req, res) => {
