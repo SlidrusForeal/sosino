@@ -3,18 +3,144 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Казино SPWorlds</title>
-  <link href="https://cdn.jsdelivr.net/npm/@unocss/reset/tailwind.min.css" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/@unocss/runtime/uno.global.js"></script>
+  <title>Казино SOSINO</title>
+  <link rel="stylesheet" href="styles.css">
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
-<body class="bg-gray-900 text-white font-mono flex flex-col items-center justify-center min-h-screen">
-  <h1 class="text-4xl font-bold animate-pulse">Добро пожаловать в Казино SOSINO 💎</h1>
-  <div class="grid grid-cols-2 gap-4 mt-8">
-    <a href="/coin.html" class="bg-purple-700 hover:bg-purple-900 transition p-4 rounded-2xl shadow-lg">Монетка</a>
-    <a href="/slots.html" class="bg-yellow-600 hover:bg-yellow-800 transition p-4 rounded-2xl shadow-lg">Слоты</a>
-    <a href="/roulette.html" class="bg-red-700 hover:bg-red-900 transition p-4 rounded-2xl shadow-lg">Рулетка</a>
-    <a href="/minesweeper.html" class="bg-blue-700 hover:bg-blue-900 transition p-4 rounded-2xl shadow-lg">Сапёр</a>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="logo">
+        <h1>🎰 SOSINO</h1>
+      </div>
+      <div id="user-info" class="user-info-container">
+        <!-- User info will be inserted here -->
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <!-- Welcome Section -->
+      <section class="welcome-section">
+        <h2>Добро пожаловать в Казино SOSINO 💎</h2>
+        <p class="subtitle">Испытайте удачу в лучших играх Minecraft</p>
+      </section>
+
+      <!-- Games Grid -->
+      <section class="games-section">
+        <div class="games-grid">
+          <a href="/coin.html" class="game-card">
+            <div class="game-icon">🪙</div>
+            <h3>Монетка</h3>
+            <p>Орел или решка?</p>
+          </a>
+          <a href="/slots.html" class="game-card">
+            <div class="game-icon">🎰</div>
+            <h3>Слоты</h3>
+            <p>Крутите барабаны!</p>
+          </a>
+          <a href="/roulette.html" class="game-card">
+            <div class="game-icon">🎲</div>
+            <h3>Рулетка</h3>
+            <p>Испытайте судьбу</p>
+          </a>
+          <a href="/minesweeper.html" class="game-card">
+            <div class="game-icon">💣</div>
+            <h3>Сапёр</h3>
+            <p>Найди все мины</p>
+          </a>
+        </div>
+      </section>
+
+      <!-- Balance Section -->
+      <section class="balance-section">
+        <div class="balance-card">
+          <h3>Ваш баланс</h3>
+          <div class="balance-amount">
+            <span id="balance-display">0</span>
+            <span class="currency">руды</span>
+          </div>
+          <div class="balance-actions">
+            <div class="payment-links">
+              <a href="/payment.html" class="btn btn-secondary">Пополнить через SPWorlds</a>
+              <a href="/withdraw.html" class="btn btn-secondary">Вывести средства</a>
+            </div>
+          </div>
+          <div id="deposit-status" class="status-message"></div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <p>© 2024 Казино SOSINO. Все права защищены.</p>
+    </footer>
   </div>
+
+  <script>
+    // Get user info and balance
+    fetch('/api/auth/user')
+      .then(res => {
+        if (!res.ok) {
+          throw new Error('Unauthorized');
+        }
+        return res.json();
+      })
+      .then(user => {
+        const infoDiv = document.getElementById('user-info');
+        const balanceDisplay = document.getElementById('balance-display');
+
+        if (user.discord_username) {
+          infoDiv.innerHTML = `
+            <div class="user-profile">
+              <img src="https://mc-heads.net/avatar/${user.minecraft_username}" alt="Minecraft Avatar" class="minecraft-avatar">
+              <div class="user-details">
+                <div class="discord-name">${user.discord_username}</div>
+                <div class="minecraft-name">${user.minecraft_username}</div>
+              </div>
+            </div>
+          `;
+          balanceDisplay.textContent = user.balance;
+        } else {
+          infoDiv.innerHTML = '<a href="/auth/discord" class="btn btn-primary">Войти через Discord</a>';
+        }
+      })
+      .catch(err => {
+        console.error('Auth error:', err);
+        const infoDiv = document.getElementById('user-info');
+        infoDiv.innerHTML = '<a href="/auth/discord" class="btn btn-primary">Войти через Discord</a>';
+      });
+
+    // Handle deposit form
+    document.getElementById('deposit-form').addEventListener('submit', async e => {
+      e.preventDefault();
+      const amount = parseInt(document.getElementById('deposit-amount').value, 10);
+      const statusEl = document.getElementById('deposit-status');
+
+      try {
+        const res = await fetch('/api/deposit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ amount })
+        });
+
+        const data = await res.json();
+        if (res.ok) {
+          statusEl.className = 'status-message success';
+          statusEl.innerText = data.message;
+          // Update balance display
+          const balanceDisplay = document.getElementById('balance-display');
+          balanceDisplay.textContent = parseInt(balanceDisplay.textContent) + amount;
+        } else {
+          statusEl.className = 'status-message error';
+          statusEl.innerText = data.error || 'Ошибка';
+        }
+      } catch (error) {
+        statusEl.className = 'status-message error';
+        statusEl.innerText = 'Ошибка при обработке запроса';
+      }
+    });
+  </script>
 </body>
 </html>
-

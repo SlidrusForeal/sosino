@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Вывод средств - Казино SPWorlds</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <a href="/" class="btn">← Назад</a>
+    </div>
+
+    <div class="game-card">
+      <h2 class="result">Вывод средств</h2>
+      
+      <form id="withdraw-form">
+        <div class="payment-amount">
+          <label for="amount">Сумма вывода (АР):</label>
+          <input
+            type="number"
+            id="amount"
+            min="1"
+            max="10000"
+            required
+            placeholder="Введите сумму"
+          >
+        </div>
+
+        <div class="payment-amount">
+          <label for="card">Номер карты получателя:</label>
+          <input
+            type="text"
+            id="card"
+            required
+            placeholder="Введите номер карты"
+            pattern="[0-9]{16}"
+            maxlength="16"
+          >
+        </div>
+
+        <div class="payment-amount">
+          <label for="comment">Комментарий к переводу:</label>
+          <input
+            type="text"
+            id="comment"
+            placeholder="Необязательно"
+            maxlength="64"
+          >
+        </div>
+
+        <button type="submit" class="btn btn-primary">Вывести</button>
+      </form>
+
+      <div id="withdraw-status" class="result"></div>
+    </div>
+  </div>
+
+  <script>
+    document.getElementById('withdraw-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const amount = parseInt(document.getElementById('amount').value);
+      const card = document.getElementById('card').value;
+      const comment = document.getElementById('comment').value;
+      const statusEl = document.getElementById('withdraw-status');
+
+      if (amount < 1 || amount > 10000) {
+        statusEl.className = 'result lose';
+        statusEl.textContent = 'Сумма должна быть от 1 до 10000 АР';
+        return;
+      }
+
+      if (!/^\d{16}$/.test(card)) {
+        statusEl.className = 'result lose';
+        statusEl.textContent = 'Неверный формат номера карты';
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/withdraw', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ amount, card, comment })
+        });
+
+        const data = await res.json();
+        
+        if (res.ok) {
+          statusEl.className = 'result win';
+          statusEl.textContent = `Успешно выведено ${amount} АР`;
+          
+          // Clear form
+          document.getElementById('withdraw-form').reset();
+          
+          // Redirect to home page after 3 seconds
+          setTimeout(() => {
+            window.location.href = '/';
+          }, 3000);
+        } else {
+          statusEl.className = 'result lose';
+          statusEl.textContent = data.error || 'Ошибка при выводе средств';
+        }
+      } catch (err) {
+        statusEl.className = 'result lose';
+        statusEl.textContent = 'Ошибка: ' + err.message;
+      }
+    });
+  </script>
+</body>
+</html> 

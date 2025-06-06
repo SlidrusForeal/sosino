@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Оплата успешна - Казино SPWorlds</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <a href="/" class="btn">← Назад в казино</a>
+    </div>
+
+    <div class="game-card">
+      <h2 class="result">Оплата успешна!</h2>
+      <p class="payment-success">Спасибо за пополнение баланса. Ваш платеж обрабатывается.</p>
+      <p>Вы будете автоматически перенаправлены на главную страницу через 5 секунд...</p>
+    </div>
+  </div>
+
+  <script>
+    // Redirect to home page after 5 seconds
+    setTimeout(() => {
+      window.location.href = '/';
+    }, 5000);
+  </script>
+</body>
+</html> 
