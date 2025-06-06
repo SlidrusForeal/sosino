@@ -143,8 +143,9 @@ app.use(express.json());
 app.use(session({
   store: new RedisSessionStore(),
   secret: process.env.SESSION_SECRET || 'your-secret-key',
-  resave: false,
-  saveUninitialized: false,
+  resave: true,
+  saveUninitialized: true,
+  rolling: true,
   cookie: {
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
@@ -303,13 +304,13 @@ app.get('/auth/discord/callback',
         console.error('Discord callback timeout');
         res.redirect('/?error=callback_timeout');
       }
-    }, 15000); // Increased timeout to 15 seconds
+    }, 15000);
 
     passport.authenticate('discord', { 
       failureRedirect: '/?error=auth_failed',
       failureMessage: true,
       session: true
-    })(req, res, (err) => {
+    })(req, res, async (err) => {
       clearTimeout(callbackTimeout);
       if (err) {
         console.error('Discord callback error:', err);
@@ -317,6 +318,20 @@ app.get('/auth/discord/callback',
           return res.redirect('/?error=callback_failed');
         }
       }
+
+      // Force session save
+      await new Promise((resolve, reject) => {
+        req.session.save((err) => {
+          if (err) {
+            console.error('Error saving session after auth:', err);
+            reject(err);
+          } else {
+            console.log('Session saved after auth');
+            resolve();
+          }
+        });
+      });
+
       console.log('Session after auth:', req.session);
       next();
     });
@@ -334,6 +349,19 @@ app.get('/auth/discord/callback',
         }
         return;
       }
+
+      // Force session save before SPWorlds API call
+      await new Promise((resolve, reject) => {
+        req.session.save((err) => {
+          if (err) {
+            console.error('Error saving session before SPWorlds:', err);
+            reject(err);
+          } else {
+            console.log('Session saved before SPWorlds');
+            resolve();
+          }
+        });
+      });
 
       // Set a timeout for SPWorlds API call
       const spworldsTimeout = setTimeout(() => {
@@ -385,22 +413,23 @@ app.get('/auth/discord/callback',
         return;
       }
 
-      // Save session before redirect
-      req.session.save((err) => {
-        if (err) {
-          console.error('Error saving session:', err);
-          if (!res.headersSent) {
-            return res.redirect('/?error=session_save_failed');
+      // Force final session save
+      await new Promise((resolve, reject) => {
+        req.session.save((err) => {
+          if (err) {
+            console.error('Error saving final session:', err);
+            reject(err);
+          } else {
+            console.log('Final session saved successfully');
+            resolve();
           }
-          return;
-        }
-
-        console.log('Session saved successfully');
-        console.log('Authentication successful, redirecting to home...');
-        if (!res.headersSent) {
-          res.redirect('/');
-        }
+        });
       });
+
+      console.log('Authentication successful, redirecting to home...');
+      if (!res.headersSent) {
+        res.redirect('/');
+      }
     } catch (error) {
       console.error('Error in Discord callback:', error);
       if (!res.headersSent) {
