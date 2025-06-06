@@ -138,7 +138,7 @@ app.use(session({
   secret: process.env.SESSION_SECRET || 'your-secret-key',
   resave: true,
   saveUninitialized: true,
-  rolling: true, // Enable rolling sessions
+  rolling: true,
   cookie: {
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
@@ -158,32 +158,39 @@ app.use(passport.session());
 // --- Настройка Passport-Discord ---
 passport.serializeUser((user, done) => {
   console.log('Serializing user:', user); // Debug log
-  done(null, user.discord_id);
+  // Store the entire user object in the session
+  done(null, user);
 });
 
-passport.deserializeUser(async (discordId, done) => {
-  console.log('Deserializing user with discord_id:', discordId); // Debug log
+passport.deserializeUser(async (user, done) => {
+  console.log('Deserializing user:', user); // Debug log
   try {
-    const { data: user, error } = await supabaseAdmin
+    // If we already have the user object, use it
+    if (user && user.discord_id) {
+      return done(null, user);
+    }
+
+    // Otherwise, fetch from database
+    const { data: userData, error } = await supabaseAdmin
       .from('users')
       .select('*')
-      .eq('discord_id', discordId)
-      .single();
+      .eq('discord_id', user.discord_id)
+      .maybeSingle();
 
     if (error) {
-      console.error('Error deserializing user:', error); // Debug log
+      console.error('Error deserializing user:', error);
       return done(error);
     }
 
-    if (!user) {
-      console.error('User not found during deserialization'); // Debug log
+    if (!userData) {
+      console.error('User not found during deserialization');
       return done(null, false);
     }
 
-    console.log('Deserialized user:', user); // Debug log
-    done(null, user);
+    console.log('Deserialized user:', userData);
+    done(null, userData);
   } catch (error) {
-    console.error('Error in deserializeUser:', error); // Debug log
+    console.error('Error in deserializeUser:', error);
     done(error);
   }
 });
@@ -281,7 +288,13 @@ app.get('/auth/discord/callback',
         console.error('Error updating user:', error);
       }
 
-      res.redirect('/');
+      // Save the session explicitly
+      req.session.save((err) => {
+        if (err) {
+          console.error('Error saving session:', err);
+        }
+        res.redirect('/');
+      });
     } catch (error) {
       console.error('Error fetching SPWorlds data:', error);
       res.redirect('/');
