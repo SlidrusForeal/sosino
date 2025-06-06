@@ -112,22 +112,28 @@
         });
         if (response.ok) {
           userData = await response.json();
+          if (!userData || !userData.discord_username) {
+            // Если пользователь не аутентифицирован, перенаправляем на страницу авторизации
+            window.location.href = '/auth/discord';
+            return;
+          }
           userBalance = userData.balance;
-          document.getElementById('balance').textContent = userData.balance;
-          document.getElementById('game-form').style.display = 'block';
+          const balanceElement = document.getElementById('balance');
+          if (balanceElement) {
+            balanceElement.textContent = userData.balance;
+          }
+          const gameForm = document.getElementById('game-form');
+          if (gameForm) {
+            gameForm.style.display = 'block';
+          }
         } else {
-          document.getElementById('game-form').style.display = 'none';
-          document.getElementById('user-info').innerHTML = `
-            <div class="auth-container">
-              <a href="/auth/discord" class="btn btn-primary">
-                <img src="https://assets-global.website-files.com/6257adef93867e50d84d30e2/636e0a6a49cf127bf92de1e2_icon_clyde_white_RGB.png" alt="Discord" class="discord-icon">
-                Войти через Discord
-              </a>
-            </div>
-          `;
+          // Если ответ не OK, перенаправляем на страницу авторизации
+          window.location.href = '/auth/discord';
         }
       } catch (error) {
         console.error('Error checking auth:', error);
+        // При ошибке также перенаправляем на страницу авторизации
+        window.location.href = '/auth/discord';
       }
     }
 
@@ -182,6 +188,10 @@
     // Функция для игры
     async function playGame() {
       if (isPlaying) return;
+      if (!userData || !userData.discord_username) {
+        window.location.href = '/auth/discord';
+        return;
+      }
       if (currentBet > userBalance) {
         alert('Недостаточно средств!');
         return;
@@ -208,6 +218,11 @@
           })
         });
 
+        if (response.status === 401) {
+          window.location.reload();
+          return;
+        }
+
         if (!response.ok) {
           throw new Error('Game error');
         }
@@ -230,6 +245,15 @@
         alert('Произошла ошибка при игре');
         resetGame();
       }
+    }
+
+    // Добавляем обработчик отправки формы
+    const gameForm = document.getElementById('game-form');
+    if (gameForm) {
+      gameForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        playGame();
+      });
     }
 
     // Функция для проверки ячейки
@@ -329,13 +353,10 @@
     }
 
     // Проверяем аутентификацию при загрузке страницы
-    checkAuth();
-
-    // Периодически проверяем состояние аутентификации
-    setInterval(checkAuth, 30000); // каждые 30 секунд
-
-    // Инициализация сетки при загрузке
-    createGrid();
+    document.addEventListener('DOMContentLoaded', () => {
+      checkAuth();
+      createGrid();
+    });
   </script>
 </body>
 </html>

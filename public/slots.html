@@ -113,22 +113,28 @@
         });
         if (response.ok) {
           userData = await response.json();
+          if (!userData || !userData.discord_username) {
+            // Если пользователь не аутентифицирован, перенаправляем на страницу авторизации
+            window.location.href = '/auth/discord';
+            return;
+          }
           userBalance = userData.balance;
-          document.getElementById('balance').textContent = userData.balance;
-          document.getElementById('game-form').style.display = 'block';
+          const balanceElement = document.getElementById('balance');
+          if (balanceElement) {
+            balanceElement.textContent = userData.balance;
+          }
+          const gameForm = document.getElementById('game-form');
+          if (gameForm) {
+            gameForm.style.display = 'block';
+          }
         } else {
-          document.getElementById('game-form').style.display = 'none';
-          document.getElementById('user-info').innerHTML = `
-            <div class="auth-container">
-              <a href="/auth/discord" class="btn btn-primary">
-                <img src="https://assets-global.website-files.com/6257adef93867e50d84d30e2/636e0a6a49cf127bf92de1e2_icon_clyde_white_RGB.png" alt="Discord" class="discord-icon">
-                Войти через Discord
-              </a>
-            </div>
-          `;
+          // Если ответ не OK, перенаправляем на страницу авторизации
+          window.location.href = '/auth/discord';
         }
       } catch (error) {
         console.error('Error checking auth:', error);
+        // При ошибке также перенаправляем на страницу авторизации
+        window.location.href = '/auth/discord';
       }
     }
 
@@ -172,8 +178,8 @@
     // Функция для игры
     async function playGame() {
       if (isSpinning) return;
-      if (!userData) {
-        alert('Необходимо авторизоваться!');
+      if (!userData || !userData.discord_username) {
+        window.location.href = '/auth/discord';
         return;
       }
       if (currentBet > userBalance) {
@@ -197,7 +203,6 @@
         });
 
         if (response.status === 401) {
-          // Если сессия истекла, обновляем страницу
           window.location.reload();
           return;
         }
@@ -242,16 +247,16 @@
     }
 
     // Добавляем обработчик отправки формы
-    document.getElementById('game-form').addEventListener('submit', function(e) {
-      e.preventDefault();
-      playGame();
-    });
+    const gameForm = document.getElementById('game-form');
+    if (gameForm) {
+      gameForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        playGame();
+      });
+    }
 
     // Проверяем аутентификацию при загрузке страницы
-    checkAuth();
-
-    // Периодически проверяем состояние аутентификации
-    setInterval(checkAuth, 30000); // каждые 30 секунд
+    document.addEventListener('DOMContentLoaded', checkAuth);
   </script>
 </body>
 </html>

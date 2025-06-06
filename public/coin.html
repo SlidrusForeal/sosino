@@ -113,6 +113,11 @@
         });
         if (response.ok) {
           userData = await response.json();
+          if (!userData || !userData.discord_username) {
+            // Если пользователь не аутентифицирован, перенаправляем на страницу авторизации
+            window.location.href = '/auth/discord';
+            return;
+          }
           userBalance = userData.balance;
           const balanceElement = document.getElementById('balance');
           if (balanceElement) {
@@ -123,24 +128,13 @@
             gameForm.style.display = 'block';
           }
         } else {
-          const gameForm = document.getElementById('game-form');
-          if (gameForm) {
-            gameForm.style.display = 'none';
-          }
-          const userInfo = document.getElementById('user-info');
-          if (userInfo) {
-            userInfo.innerHTML = `
-              <div class="auth-container">
-                <a href="/auth/discord" class="btn btn-primary">
-                  <img src="https://assets-global.website-files.com/6257adef93867e50d84d30e2/636e0a6a49cf127bf92de1e2_icon_clyde_white_RGB.png" alt="Discord" class="discord-icon">
-                  Войти через Discord
-                </a>
-              </div>
-            `;
-          }
+          // Если ответ не OK, перенаправляем на страницу авторизации
+          window.location.href = '/auth/discord';
         }
       } catch (error) {
         console.error('Error checking auth:', error);
+        // При ошибке также перенаправляем на страницу авторизации
+        window.location.href = '/auth/discord';
       }
     }
 
@@ -167,6 +161,10 @@
     // Функция для игры
     async function playGame() {
       if (isSpinning) return;
+      if (!userData || !userData.discord_username) {
+        window.location.href = '/auth/discord';
+        return;
+      }
       if (!selectedSide) {
         alert('Выберите сторону монеты!');
         return;
@@ -192,6 +190,11 @@
           })
         });
 
+        if (response.status === 401) {
+          window.location.reload();
+          return;
+        }
+
         if (!response.ok) {
           throw new Error('Game error');
         }
@@ -203,13 +206,15 @@
 
         // Показываем результат
         const resultDiv = document.getElementById('game-status');
-        resultDiv.innerHTML = `
-          <div class="result ${result.won ? 'win' : 'lose'}">
-            <h3>${result.won ? 'Победа!' : 'Проигрыш'}</h3>
-            <p>Выпало: ${result.result === 'heads' ? 'Орёл' : 'Решка'}</p>
-            <p>${result.won ? 'Выигрыш: ' + (currentBet * 2) : 'Потеряно: ' + currentBet} AR</p>
-          </div>
-        `;
+        if (resultDiv) {
+          resultDiv.innerHTML = `
+            <div class="result ${result.won ? 'win' : 'lose'}">
+              <h3>${result.won ? 'Победа!' : 'Проигрыш'}</h3>
+              <p>Выпало: ${result.result === 'heads' ? 'Орёл' : 'Решка'}</p>
+              <p>${result.won ? 'Выигрыш: ' + (currentBet * 2) : 'Потеряно: ' + currentBet} AR</p>
+            </div>
+          `;
+        }
 
         // Сбрасываем выбор стороны
         selectedSide = null;
@@ -222,6 +227,23 @@
       } finally {
         isSpinning = false;
       }
+    }
+
+    // Добавляем обработчик отправки формы
+    document.getElementById('game-form').addEventListener('submit', function(e) {
+      e.preventDefault();
+      playGame();
+    });
+
+    // Функция для анимации монетки
+    function animateCoin() {
+      const coin = document.createElement('div');
+      coin.className = 'coin-animation';
+      document.body.appendChild(coin);
+      
+      setTimeout(() => {
+        coin.remove();
+      }, 2000);
     }
 
     // Проверяем аутентификацию при загрузке страницы
