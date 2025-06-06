@@ -181,16 +181,32 @@ passport.use(new DiscordStrategy({
 }));
 
 // --- Маршрут для авторизации через Discord ---
-app.get('/auth/discord', passport.authenticate('discord'));
+app.get('/auth/discord', (req, res, next) => {
+  console.log('Starting Discord authentication...');
+  passport.authenticate('discord', {
+    scope: ['identify', 'email'],
+    prompt: 'consent'
+  })(req, res, next);
+});
 
 app.get('/auth/discord/callback', 
-  passport.authenticate('discord', { 
-    failureRedirect: '/',
-    failureMessage: true
-  }), 
+  (req, res, next) => {
+    console.log('Discord callback received');
+    passport.authenticate('discord', { 
+      failureRedirect: '/',
+      failureMessage: true
+    })(req, res, next);
+  },
   async (req, res) => {
     try {
+      console.log('Processing Discord callback...');
+      if (!req.user) {
+        console.error('No user in request after authentication');
+        return res.redirect('/');
+      }
+
       // Get user info from SPWorlds API
+      console.log('Fetching SPWorlds data for user:', req.user.discord_id);
       const spworldsResponse = await axios.get(`https://spworlds.ru/api/public/users/${req.user.discord_id}`, {
         headers: {
           'Authorization': `Bearer ${Buffer.from(`${process.env.SPWORLDS_CARD_ID}:${process.env.SPWORLDS_TOKEN}`).toString('base64')}`,
@@ -214,9 +230,10 @@ app.get('/auth/discord/callback',
         console.error('Error updating user:', error);
       }
 
+      console.log('Authentication successful, redirecting to home...');
       res.redirect('/');
     } catch (error) {
-      console.error('Error fetching SPWorlds data:', error);
+      console.error('Error in Discord callback:', error);
       res.redirect('/');
     }
   }
@@ -225,11 +242,11 @@ app.get('/auth/discord/callback',
 // --- Проверка, кто сейчас залогинен ---
 app.get('/api/auth/user', (req, res) => {
   try {
-    console.log('Auth check - Session:', req.session); // Debug log
-    console.log('Auth check - User:', req.user); // Debug log
+    console.log('Auth check - Session:', req.session);
+    console.log('Auth check - User:', req.user);
 
     if (!req.isAuthenticated()) {
-      console.log('User not authenticated'); // Debug log
+      console.log('User not authenticated');
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
@@ -242,7 +259,7 @@ app.get('/api/auth/user', (req, res) => {
       balance: req.user.balance || 0
     };
 
-    console.log('Sending user data:', userData); // Debug log
+    console.log('Sending user data:', userData);
     return res.json(userData);
   } catch (err) {
     console.error('Error in /api/auth/user:', err);
