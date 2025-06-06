@@ -8,20 +8,6 @@ import { supabase, supabaseAdmin, createTransaction, getBalance, getUser } from 
 import fs from 'fs';
 import crypto from 'crypto';
 import axios from 'axios';
-import { Redis } from '@upstash/redis';
-
-// Initialize Redis client
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN,
-});
-
-// Create Redis store
-import RedisStore from 'connect-redis';
-const redisStore = new RedisStore.default({ 
-  client: redis,
-  prefix: 'sess:'
-});
 
 // Debug log for SPWorlds credentials
 console.log('SPWorlds Credentials:', {
@@ -35,9 +21,8 @@ const app = express();
 app.use(express.static('public'));
 app.use(express.json());
 
-// 2) Сессии с Redis
+// 2) Сессии
 app.use(session({
-  store: redisStore,
   secret: process.env.SESSION_SECRET || 'your-secret-key',
   resave: false,
   saveUninitialized: false,

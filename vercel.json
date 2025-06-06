@@ -16,6 +16,18 @@
       "dest": "/server.js"
     },
     {
+      "src": "/auth/discord",
+      "dest": "/server.js"
+    },
+    {
+      "src": "/auth/discord/callback",
+      "dest": "/server.js"
+    },
+    {
+      "src": "/payment-success",
+      "dest": "/server.js"
+    },
+    {
       "handle": "filesystem"
     },
     {
@@ -29,6 +41,6 @@
   ],
   "env": {
     "NODE_ENV": "production",
-    "SITE_URL": "https://casino.sosmark.ru"
+    "SITE_URL": "https://sosino.vercel.app"
   }
 } 
