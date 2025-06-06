@@ -18,11 +18,12 @@ class SupabaseStore extends session.Store {
 
   async get(sid, callback) {
     try {
+      console.log('Getting session:', sid); // Debug log
       const { data, error } = await supabaseAdmin
         .from('sessions')
         .select('*')
         .eq('sid', sid)
-        .maybeSingle(); // Use maybeSingle instead of single
+        .maybeSingle();
 
       if (error) {
         console.error('Session get error:', error);
@@ -30,17 +31,20 @@ class SupabaseStore extends session.Store {
       }
 
       if (!data) {
+        console.log('No session found for:', sid); // Debug log
         return callback(null, null);
       }
 
       // Check if session is expired
       if (data.expires_at && new Date(data.expires_at) < new Date()) {
+        console.log('Session expired for:', sid); // Debug log
         await this.destroy(sid);
         return callback(null, null);
       }
 
       try {
         const session = JSON.parse(data.session);
+        console.log('Retrieved session:', { sid, session }); // Debug log
         callback(null, session);
       } catch (parseError) {
         console.error('Error parsing session data:', parseError);
@@ -54,6 +58,7 @@ class SupabaseStore extends session.Store {
 
   async set(sid, session, callback) {
     try {
+      console.log('Setting session:', { sid, session }); // Debug log
       const expiresAt = new Date(Date.now() + this.ttl * 1000);
       const { error } = await supabaseAdmin
         .from('sessions')
@@ -70,6 +75,7 @@ class SupabaseStore extends session.Store {
         return callback(error);
       }
 
+      console.log('Session set successfully:', sid); // Debug log
       callback();
     } catch (err) {
       console.error('Unexpected error in session set:', err);
@@ -79,6 +85,7 @@ class SupabaseStore extends session.Store {
 
   async destroy(sid, callback) {
     try {
+      console.log('Destroying session:', sid); // Debug log
       const { error } = await supabaseAdmin
         .from('sessions')
         .delete()
@@ -89,6 +96,7 @@ class SupabaseStore extends session.Store {
         return callback(error);
       }
 
+      console.log('Session destroyed successfully:', sid); // Debug log
       callback();
     } catch (err) {
       console.error('Unexpected error in session destroy:', err);
@@ -96,9 +104,9 @@ class SupabaseStore extends session.Store {
     }
   }
 
-  // Add touch method to update session expiry
   async touch(sid, session, callback) {
     try {
+      console.log('Touching session:', sid); // Debug log
       const expiresAt = new Date(Date.now() + this.ttl * 1000);
       const { error } = await supabaseAdmin
         .from('sessions')
@@ -112,6 +120,7 @@ class SupabaseStore extends session.Store {
         return callback(error);
       }
 
+      console.log('Session touched successfully:', sid); // Debug log
       callback();
     } catch (err) {
       console.error('Unexpected error in session touch:', err);
@@ -154,7 +163,8 @@ app.use((req, res, next) => {
     id: req.sessionID,
     hasSession: !!req.session,
     hasUser: !!req.user,
-    sessionData: req.session
+    sessionData: req.session,
+    passport: req.session?.passport
   });
   next();
 });
