@@ -188,6 +188,9 @@ console.log('SPWorlds Credentials:', {
 
 const app = express();
 
+// Включаем доверие к прокси
+app.set('trust proxy', 1);
+
 // 1) Статические файлы и JSON-парсинг
 app.use(express.static('public'));
 app.use(express.json());
@@ -380,7 +383,7 @@ app.get('/auth/discord/callback',
       }
 
       // Обновляем данные пользователя в сессии
-      req.session.passport.user = updatedUser;
+      req.session.passport = { user: updatedUser };
       req.session.save((err) => {
         if (err) {
           console.error('Error saving session:', err);
