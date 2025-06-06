@@ -194,8 +194,8 @@ app.use(express.json());
 // 2) Сессии
 app.use(session({
   secret: process.env.SESSION_SECRET || 'your-secret-key',
-  resave: false,
-  saveUninitialized: false,
+  resave: true,
+  saveUninitialized: true,
   rolling: true,
   store: new SupabaseStore(),
   cookie: {
@@ -214,7 +214,8 @@ app.use((req, res, next) => {
     hasSession: !!req.session,
     hasUser: !!req.user,
     sessionData: req.session,
-    passport: req.session?.passport
+    passport: req.session?.passport,
+    cookies: req.cookies
   });
   next();
 });
@@ -234,11 +235,14 @@ passport.serializeUser((user, done) => {
     return done(null, null);
   }
   
-  // Store minimal user data
+  // Store complete user data
   const userData = {
     id: user.id,
     discord_id: user.discord_id,
-    discord_username: user.discord_username
+    discord_username: user.discord_username,
+    minecraft_username: user.minecraft_username,
+    minecraft_uuid: user.minecraft_uuid,
+    balance: user.balance
   };
   console.log('Serialized user data:', userData); // Debug log
   done(null, userData);
@@ -395,33 +399,18 @@ app.get('/auth/discord/callback',
 // --- Проверка, кто сейчас залогинен ---
 app.get('/api/auth/user', async (req, res) => {
   try {
-    const authCookie = req.cookies.auth;
-    console.log('Auth cookie:', authCookie); // Debug log
-
-    if (!authCookie || !authCookie.discord_id) {
-      console.log('No auth cookie found');
+    if (!req.isAuthenticated()) {
+      console.log('User not authenticated');
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    // Get fresh user data from database
-    const { data: user, error } = await supabaseAdmin
-      .from('users')
-      .select('*')
-      .eq('discord_id', authCookie.discord_id)
-      .single();
-
-    if (error || !user) {
-      console.error('Error getting user data:', error);
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    // Return user data
+    // Return user data from session
     const userData = {
-      discord_username: user.discord_username,
-      discord_id: user.discord_id,
-      minecraft_username: user.minecraft_username || 'Unknown',
-      minecraft_uuid: user.minecraft_uuid || null,
-      balance: user.balance || 0
+      discord_username: req.user.discord_username,
+      discord_id: req.user.discord_id,
+      minecraft_username: req.user.minecraft_username || 'Unknown',
+      minecraft_uuid: req.user.minecraft_uuid || null,
+      balance: req.user.balance || 0
     };
 
     console.log('Sending user data:', userData); // Debug log
