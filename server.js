@@ -145,8 +145,8 @@ app.use(express.json());
 app.use(session({
   store: new SupabaseStore(),
   secret: process.env.SESSION_SECRET || 'your-secret-key',
-  resave: true,
-  saveUninitialized: true,
+  resave: false,
+  saveUninitialized: false,
   rolling: true,
   cookie: {
     secure: process.env.NODE_ENV === 'production',
@@ -179,11 +179,14 @@ app.use(passport.session());
 // --- Настройка Passport-Discord ---
 passport.serializeUser((user, done) => {
   console.log('Serializing user:', user); // Debug log
-  // Store minimal user data
+  // Store complete user data
   const userData = {
     id: user.id,
     discord_id: user.discord_id,
-    discord_username: user.discord_username
+    discord_username: user.discord_username,
+    minecraft_username: user.minecraft_username,
+    minecraft_uuid: user.minecraft_uuid,
+    balance: user.balance
   };
   console.log('Serialized user data:', userData); // Debug log
   done(null, userData);
@@ -213,8 +216,14 @@ passport.deserializeUser(async (userData, done) => {
       return done(null, false);
     }
 
-    console.log('Deserialized user:', user);
-    done(null, user);
+    // Merge stored data with fresh data from database
+    const mergedUser = {
+      ...userData,
+      ...user
+    };
+
+    console.log('Deserialized user:', mergedUser);
+    done(null, mergedUser);
   } catch (error) {
     console.error('Error in deserializeUser:', error);
     done(error);
