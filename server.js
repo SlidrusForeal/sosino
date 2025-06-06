@@ -32,6 +32,147 @@ const redis = new Redis({
   retryStrategy: (times) => times > 3 ? null : Math.min(times * 1000, 3000)
 });
 
+// --- Пользовательский RedisSessionStore ---
+class RedisSessionStore extends EventEmitter {
+  async get(sid) {
+    try {
+      const data = await redis.get(`sess:${sid}`);
+      return data ? JSON.parse(data) : null;
+    } catch (err) {
+      this.emit('disconnect', err);
+      return null;
+    }
+  }
+
+  async set(sid, sessionData) {
+    try {
+      await redis.set(`sess:${sid}`, JSON.stringify(sessionData), { ex: 86400 });
+    } catch (err) {
+      this.emit('disconnect', err);
+    }
+  }
+
+  async destroy(sid) {
+    try {
+      await redis.del(`sess:${sid}`);
+    } catch (err) {
+      this.emit('disconnect', err);
+    }
+  }
+
+  async touch(sid, sessionData) {
+    // Продлевает время жизни без изменения данных
+    try {
+      const existing = await this.get(sid);
+      if (existing) {
+        await this.set(sid, existing);
+      }
+    } catch (err) {
+      this.emit('disconnect', err);
+    }
+  }
+
+  async regenerate(req, fn) {
+    try {
+      const oldSid = req.sessionID;
+      const newSid = crypto.randomBytes(32).toString('hex');
+      const oldSession = await this.get(oldSid);
+      if (oldSession) {
+        await this.set(newSid, oldSession);
+      }
+      await this.destroy(oldSid);
+      req.sessionID = newSid;
+      fn(null);
+    } catch (err) {
+      fn(err);
+    }
+  }
+
+  async all(callback) {
+    try {
+      const keys = await redis.keys('sess:*');
+      const sessions = await Promise.all(
+        keys.map(key => this.get(key.replace('sess:', '')))
+      );
+      callback(null, sessions.filter(Boolean));
+    } catch (err) {
+      callback(err);
+    }
+  }
+
+  async length(callback) {
+    try {
+      const keys = await redis.keys('sess:*');
+      callback(null, keys.length);
+    } catch (err) {
+      callback(err);
+    }
+  }
+
+  async clear(callback) {
+    try {
+      const keys = await redis.keys('sess:*');
+      await Promise.all(keys.map(key => redis.del(key)));
+      callback(null);
+    } catch (err) {
+      callback(err);
+    }
+  }
+}
+
+// --- Passport конфигурация ---
+passport.serializeUser((user, done) => {
+  done(null, user.discord_id);
+});
+
+passport.deserializeUser(async (discordId, done) => {
+  try {
+    const { data: user, error } = await supabaseAdmin
+      .from('users')
+      .select('*')
+      .eq('discord_id', discordId)
+      .single();
+    if (error || !user) return done(error || new Error('User not found'));
+    done(null, user);
+  } catch (err) {
+    done(err);
+  }
+});
+
+passport.use(new DiscordStrategy({
+  clientID: process.env.DISCORD_CLIENT_ID,
+  clientSecret: process.env.DISCORD_CLIENT_SECRET,
+  callbackURL: process.env.DISCORD_CALLBACK_URL || `${process.env.SITE_URL}/auth/discord/callback`,
+  scope: ['identify', 'email']
+}, async (accessToken, refreshToken, profile, done) => {
+  try {
+    const { data: existingUser, error: selectError } = await supabaseAdmin
+      .from('users')
+      .select('*')
+      .eq('discord_id', profile.id)
+      .single();
+
+    if (selectError && selectError.code === 'PGRST116') {
+      const { data: newUser, error: insertError } = await supabaseAdmin
+        .from('users')
+        .insert([{
+          discord_id: profile.id,
+          discord_username: profile.username,
+          minecraft_username: null,
+          balance: 0
+        }])
+        .select()
+        .single();
+      return insertError ? done(insertError) : done(null, newUser);
+    }
+
+    if (selectError) return done(selectError);
+    done(null, existingUser);
+  } catch (err) {
+    done(err);
+  }
+}));
+
 // --- Инициализация приложения ---
 const app = express();
 
@@ -74,6 +215,15 @@ const limiter = rateLimit({
 
 // Применяем rate limiter только к API маршрутам
 app.use('/api', limiter);
+
+// --- Валидация запросов ---
+const validateDeposit = [
+  body('amount').isInt({ min: 1, max: 10000 }).withMessage('Amount must be between 1 and 10000'),
+];
+
+const validateWithdraw = [
+  body('amount').isInt({ min: 1, max: 10000 }).withMessage('Amount must be between 1 and 10000'),
+];
 
 app.use(session({
   store: new RedisSessionStore(),
