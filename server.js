@@ -9,19 +9,11 @@ import fs from 'fs';
 import crypto from 'crypto';
 import axios from 'axios';
 import { Redis } from '@upstash/redis';
-import connectRedis from 'connect-redis';
 
 // Initialize Redis client
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL,
   token: process.env.UPSTASH_REDIS_REST_TOKEN,
-});
-
-// Create Redis store
-const RedisStore = connectRedis(session);
-const redisStore = new RedisStore({ 
-  client: redis,
-  prefix: 'sess:'
 });
 
 // Debug log for SPWorlds credentials
@@ -36,9 +28,8 @@ const app = express();
 app.use(express.static('public'));
 app.use(express.json());
 
-// 2) Сессии с Redis
+// 2) Сессии
 app.use(session({
-  store: redisStore,
   secret: process.env.SESSION_SECRET || 'your-secret-key',
   resave: false,
   saveUninitialized: false,
@@ -47,6 +38,20 @@ app.use(session({
     httpOnly: true,
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
     sameSite: 'lax'
+  },
+  store: {
+    async get(sid) {
+      const data = await redis.get(`sess:${sid}`);
+      return data ? JSON.parse(data) : null;
+    },
+    async set(sid, session) {
+      await redis.set(`sess:${sid}`, JSON.stringify(session), {
+        ex: 24 * 60 * 60 // 24 hours in seconds
+      });
+    },
+    async destroy(sid) {
+      await redis.del(`sess:${sid}`);
+    }
   }
 }));
 
