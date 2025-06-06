@@ -8,7 +8,7 @@ import { supabase, supabaseAdmin, createTransaction, getBalance, getUser } from 
 import fs from 'fs';
 import crypto from 'crypto';
 import axios from 'axios';
-const rateLimit = require('express-rate-limit');
+import rateLimit from 'express-rate-limit';
 
 // Custom Session Store using Supabase
 class SupabaseStore extends session.Store {
