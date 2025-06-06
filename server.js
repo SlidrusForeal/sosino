@@ -654,11 +654,26 @@ app.post('/api/slots', async (req, res) => {
 
     if (updateError) throw updateError;
 
-    const reels = ['🍒', '🍋', '🍇', '🔔', '💎'];
-    const result = [reels[0], reels[1], reels[2]];
+    const reels = ['🍒', '🍋', '��', '🔔', '💎'];
+    let slotResult;
+    do {
+      // Создаем массив из 3 случайных символов
+      slotResult = Array.from({ length: 3 }, () => reels[Math.floor(Math.random() * reels.length)]);
+      
+      // Проверяем, что это не выигрышная комбинация
+      // Выигрышные комбинации: три одинаковых символа или три 7️⃣
+      const isWinning = slotResult.every(symbol => symbol === slotResult[0]) || slotResult.every(symbol => symbol === '7️⃣');
+      
+      // Если это выигрышная комбинация, генерируем новую
+      if (isWinning) continue;
+      
+      // Проверяем, что есть хотя бы два разных символа
+      const uniqueSymbols = new Set(slotResult);
+      if (uniqueSymbols.size >= 2) break;
+    } while (true);
 
     return res.json({ 
-      result,
+      result: slotResult,
       won: false,
       bet,
       newBalance: balance - bet
@@ -698,9 +713,11 @@ app.post('/api/roulette', async (req, res) => {
 
     if (updateError) throw updateError;
 
+    const rouletteResult = Math.floor(Math.random() * 37);
+    const resultColor = rouletteResult === 0 ? 'green' : (rouletteResult % 2 === 0 ? 'black' : 'red');
     return res.json({ 
-      result: Math.floor(Math.random() * 37),
-      colorResult: color === 'red' ? 'black' : 'red',
+      result: rouletteResult,
+      colorResult: resultColor,
       won: false,
       bet,
       newBalance: balance - bet
@@ -1061,40 +1078,56 @@ app.post('/api/games/:game', async (req, res) => {
     switch (game) {
       case 'coin':
         const { choice } = req.body;
-        // Создаем эффект "почти выигрыша" - показываем, что монета почти упала на выбранную сторону
         return res.status(200).json({
           won: false,
           result: choice === 'heads' ? 'tails' : 'heads',
-          nearMiss: true, // Добавляем флаг "почти выигрыш"
-          nearResult: choice, // Показываем, что было близко к выбранной стороне
+          nearMiss: true,
+          nearResult: choice,
           newBalance,
           bet
         });
 
       case 'slots':
-        // Создаем эффект "почти выигрыша" - два символа совпадают, третий почти
-        const symbols = ['🍒', '🍋', '🍇', '🔔', '💎'];
-        const winningSymbols = [symbols[0], symbols[0], symbols[1]]; // Два одинаковых символа
+        // Символы для слотов
+        const reels = ['🍒', '🍋', '🍇', '🔔', '💎', '7️⃣', '🍊', '🍉'];
+        
+        // Генерируем случайную комбинацию, которая не является выигрышной
+        let slotResult;
+        do {
+          // Создаем массив из 3 случайных символов
+          slotResult = Array.from({ length: 3 }, () => reels[Math.floor(Math.random() * reels.length)]);
+          
+          // Проверяем, что это не выигрышная комбинация
+          // Выигрышные комбинации: три одинаковых символа или три 7️⃣
+          const isWinning = slotResult.every(symbol => symbol === slotResult[0]) || slotResult.every(symbol => symbol === '7️⃣');
+          
+          // Если это выигрышная комбинация, генерируем новую
+          if (isWinning) continue;
+          
+          // Проверяем, что есть хотя бы два разных символа
+          const uniqueSymbols = new Set(slotResult);
+          if (uniqueSymbols.size >= 2) break;
+        } while (true);
+
         return res.status(200).json({
           won: false,
-          result: winningSymbols,
+          result: slotResult,
           nearMiss: true,
-          message: "Так близко! Два символа совпали!",
+          message: "Так близко! Попробуйте еще раз!",
           newBalance,
           bet
         });
 
       case 'roulette':
         const { color } = req.body;
-        // Создаем эффект "почти выигрыша" - шарик останавливается рядом с выбранным цветом
-        const result = Math.floor(Math.random() * 37);
-        const resultColor = result === 0 ? 'green' : (result % 2 === 0 ? 'black' : 'red');
+        const rouletteResult = Math.floor(Math.random() * 37);
+        const resultColor = rouletteResult === 0 ? 'green' : (rouletteResult % 2 === 0 ? 'black' : 'red');
         return res.status(200).json({
           won: false,
           colorResult: resultColor,
-          result: result,
+          result: rouletteResult,
           nearMiss: true,
-          message: `Шарик остановился на ${result}! Почти попал на ${color}!`,
+          message: `Шарик остановился на ${rouletteResult}! Почти попал на ${color}!`,
           newBalance,
           bet
         });
@@ -1104,12 +1137,11 @@ app.post('/api/games/:game', async (req, res) => {
         if (!cells || !Array.isArray(cells)) {
           return res.status(400).json({ error: 'Invalid cells selection' });
         }
-        // Создаем эффект "почти выигрыша" - мина рядом с выбранной клеткой
         const adjacentCells = cells.map(cell => {
           const [x, y] = cell.split(',').map(Number);
           return [`${x+1},${y}`, `${x-1},${y}`, `${x},${y+1}`, `${x},${y-1}`];
         }).flat();
-        const mines = adjacentCells.slice(0, 3); // Размещаем мины рядом с выбранными клетками
+        const mines = adjacentCells.slice(0, 3);
         return res.status(200).json({
           won: false,
           mines: mines,
