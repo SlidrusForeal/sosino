@@ -1,36 +1,18 @@
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+const supabaseKey = process.env.SUPABASE_KEY;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
 
-if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceKey) {
+if (!supabaseUrl || !supabaseKey || !supabaseServiceKey) {
   throw new Error('Missing Supabase environment variables');
 }
 
 // Create Supabase client with anonymous key for client-side operations
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    persistSession: false
-  },
-  global: {
-    headers: {
-      'x-application-name': 'casino-sosmark'
-    }
-  }
-});
+export const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Create Supabase client with service role key for server-side operations
-export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: {
-    persistSession: false
-  },
-  global: {
-    headers: {
-      'x-application-name': 'casino-sosmark'
-    }
-  }
-});
+export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
 // Helper function to retry failed operations
 const retryOperation = async (operation, maxRetries = 3, delay = 1000) => {
@@ -90,26 +72,21 @@ export const createUser = async (discordId, discordUsername, minecraftUsername) 
 
 // Transaction functions
 export const createTransaction = async (userId, type, amount, gameType = null) => {
-  return retryOperation(async () => {
-    const { data, error } = await supabaseAdmin
-      .from('transactions')
-      .insert([
-        {
-          user_id: userId,
-          type,
-          amount,
-          game_type: gameType
-        }
-      ])
-      .select()
-      .single();
+  const { data, error } = await supabaseAdmin
+    .from('transactions')
+    .insert([
+      {
+        user_id: userId,
+        type,
+        amount,
+        game_type: gameType
+      }
+    ])
+    .select()
+    .single();
 
-    if (error) {
-      console.error('Error creating transaction:', error);
-      throw error;
-    }
-    return data;
-  });
+  if (error) throw error;
+  return data;
 };
 
 // Game history functions
@@ -139,19 +116,14 @@ export const createGameHistory = async (userId, gameType, betAmount, winAmount, 
 
 // Balance functions
 export const getBalance = async (userId) => {
-  return retryOperation(async () => {
-    const { data, error } = await supabaseAdmin
-      .from('users')
-      .select('balance')
-      .eq('id', userId)
-      .single();
+  const { data, error } = await supabaseAdmin
+    .from('users')
+    .select('balance')
+    .eq('id', userId)
+    .single();
 
-    if (error) {
-      console.error('Error getting balance:', error);
-      throw error;
-    }
-    return data.balance;
-  });
+  if (error) throw error;
+  return data.balance;
 };
 
 // Statistics functions

@@ -1,30 +1,27 @@
-require('dotenv').config();
-const express = require('express');
-const session = require('express-session');
-const cookieParser = require('cookie-parser');
-const passport = require('passport');
-const DiscordStrategy = require('passport-discord').Strategy;
-const { supabase, supabaseAdmin, createTransaction, getBalance, getUser } = require('./src/supabase');
-const fs = require('fs');
-const crypto = require('crypto');
-const axios = require('axios');
-const RedisStore = require('connect-redis').default;
-const { createClient } = require('redis');
+import 'dotenv/config';
+import express from 'express';
+import session from 'express-session';
+import cookieParser from 'cookie-parser';
+import passport from 'passport';
+import DiscordStrategy from 'passport-discord';
+import { supabase, supabaseAdmin, createTransaction, getBalance, getUser } from './src/supabase.js';
+import fs from 'fs';
+import crypto from 'crypto';
+import axios from 'axios';
+import { Redis } from '@upstash/redis';
 
 // Initialize Redis client
-const redisClient = createClient({
+const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL,
-  password: process.env.UPSTASH_REDIS_REST_TOKEN,
-  socket: {
-    tls: true,
-    rejectUnauthorized: false
-  }
+  token: process.env.UPSTASH_REDIS_REST_TOKEN,
 });
 
-redisClient.on('error', (err) => console.error('Redis Client Error:', err));
-redisClient.on('connect', () => console.log('Redis Client Connected'));
-
-redisClient.connect().catch(console.error);
+// Create Redis store
+import RedisStore from 'connect-redis';
+const redisStore = new RedisStore.default({ 
+  client: redis,
+  prefix: 'sess:'
+});
 
 // Debug log for SPWorlds credentials
 console.log('SPWorlds Credentials:', {
@@ -40,7 +37,7 @@ app.use(express.json());
 
 // 2) Сессии с Redis
 app.use(session({
-  store: new RedisStore({ client: redisClient }),
+  store: redisStore,
   secret: process.env.SESSION_SECRET || 'your-secret-key',
   resave: false,
   saveUninitialized: false,
