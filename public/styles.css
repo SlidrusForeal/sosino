@@ -927,4 +927,18 @@ input[type="text"]:focus {
 .auth-buttons .discord-icon {
   width: 24px;
   height: 24px;
+}
+
+.balance-display {
+  background: rgba(0, 0, 0, 0.8);
+  padding: 8px 16px;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 16px;
+  margin-left: 16px;
+}
+
+.balance-display #balance {
+  font-weight: bold;
+  color: #4CAF50;
 } 
