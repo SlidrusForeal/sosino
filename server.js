@@ -9,6 +9,7 @@ import fs from 'fs';
 import crypto from 'crypto';
 import axios from 'axios';
 import { Redis } from '@upstash/redis';
+import connectRedis from 'connect-redis';
 
 // Initialize Redis client
 const redis = new Redis({
@@ -17,8 +18,8 @@ const redis = new Redis({
 });
 
 // Create Redis store
-import RedisStore from 'connect-redis';
-const redisStore = new RedisStore.default({ 
+const RedisStore = connectRedis(session);
+const redisStore = new RedisStore({ 
   client: redis,
   prefix: 'sess:'
 });
