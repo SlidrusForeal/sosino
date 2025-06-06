@@ -13,168 +13,59 @@ import axios from 'axios';
 class SupabaseStore extends session.Store {
   constructor() {
     super();
-    this.ttl = 86400; // 24 hours in seconds
-    this.ensureTableExists();
-    this.startCleanupInterval();
+    this.sessions = new Map();
   }
 
-  async ensureTableExists() {
-    try {
-      // Check if table exists
-      const { error: checkError } = await supabaseAdmin
-        .from('sessions')
-        .select('count')
-        .limit(1);
+  async get(sid) {
+    console.log('SupabaseStore: Getting session', sid);
+    const { data, error } = await supabaseAdmin
+      .from('sessions')
+      .select('*')
+      .eq('sid', sid)
+      .single();
 
-      if (checkError && checkError.code === '42P01') { // Table doesn't exist
-        console.log('Creating sessions table...');
-        const { error: createError } = await supabaseAdmin.rpc('create_sessions_table');
-        if (createError) {
-          console.error('Error creating sessions table:', createError);
-        } else {
-          console.log('Sessions table created successfully');
-        }
-      }
-    } catch (err) {
-      console.error('Error ensuring sessions table exists:', err);
+    if (error) {
+      console.error('SupabaseStore: Error getting session:', error);
+      return null;
     }
-  }
 
-  startCleanupInterval() {
-    // Run cleanup every hour
-    setInterval(async () => {
-      try {
-        const { error } = await supabaseAdmin.rpc('cleanup_expired_sessions');
-        if (error) {
-          console.error('Error cleaning up expired sessions:', error);
-        }
-      } catch (err) {
-        console.error('Error in cleanup interval:', err);
-      }
-    }, 60 * 60 * 1000); // 1 hour
-  }
-
-  async get(sid, callback) {
-    try {
-      console.log('Getting session:', sid); // Debug log
-      const { data, error } = await supabaseAdmin
-        .from('sessions')
-        .select('*')
-        .eq('sid', sid)
-        .maybeSingle();
-
-      if (error) {
-        console.error('Session get error:', error);
-        return callback(error);
-      }
-
-      if (!data) {
-        console.log('No session found for:', sid); // Debug log
-        return callback(null, null);
-      }
-
-      // Check if session is expired
-      if (data.expires_at && new Date(data.expires_at) < new Date()) {
-        console.log('Session expired for:', sid); // Debug log
-        await this.destroy(sid);
-        return callback(null, null);
-      }
-
-      try {
-        const session = JSON.parse(data.session);
-        console.log('Retrieved session data:', {
-          sid,
-          hasPassport: !!session.passport,
-          passportUser: session.passport?.user
-        }); // Debug log
-        callback(null, session);
-      } catch (parseError) {
-        console.error('Error parsing session data:', parseError);
-        callback(null, null);
-      }
-    } catch (err) {
-      console.error('Unexpected error in session get:', err);
-      callback(null, null);
+    if (!data) {
+      console.log('SupabaseStore: No session found');
+      return null;
     }
+
+    console.log('SupabaseStore: Session found:', data);
+    return JSON.parse(data.sess);
   }
 
-  async set(sid, session, callback) {
-    try {
-      console.log('Setting session:', {
+  async set(sid, sess) {
+    console.log('SupabaseStore: Setting session', sid, sess);
+    const { error } = await supabaseAdmin
+      .from('sessions')
+      .upsert({
         sid,
-        hasPassport: !!session.passport,
-        passportUser: session.passport?.user
-      }); // Debug log
+        sess: JSON.stringify(sess),
+        expire: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days
+      });
 
-      const expiresAt = new Date(Date.now() + this.ttl * 1000);
-      const sessionData = {
-        sid,
-        session: JSON.stringify(session),
-        expires_at: expiresAt.toISOString()
-      };
-
-      const { error } = await supabaseAdmin
-        .from('sessions')
-        .upsert(sessionData, {
-          onConflict: 'sid'
-        });
-
-      if (error) {
-        console.error('Session set error:', error);
-        return callback(error);
-      }
-
-      console.log('Session set successfully:', sid); // Debug log
-      callback();
-    } catch (err) {
-      console.error('Unexpected error in session set:', err);
-      callback(err);
+    if (error) {
+      console.error('SupabaseStore: Error setting session:', error);
+    } else {
+      console.log('SupabaseStore: Session set successfully');
     }
   }
 
-  async destroy(sid, callback) {
-    try {
-      console.log('Destroying session:', sid); // Debug log
-      const { error } = await supabaseAdmin
-        .from('sessions')
-        .delete()
-        .eq('sid', sid);
+  async destroy(sid) {
+    console.log('SupabaseStore: Destroying session', sid);
+    const { error } = await supabaseAdmin
+      .from('sessions')
+      .delete()
+      .eq('sid', sid);
 
-      if (error) {
-        console.error('Session destroy error:', error);
-        return callback(error);
-      }
-
-      console.log('Session destroyed successfully:', sid); // Debug log
-      callback();
-    } catch (err) {
-      console.error('Unexpected error in session destroy:', err);
-      callback(err);
-    }
-  }
-
-  async touch(sid, session, callback) {
-    try {
-      console.log('Touching session:', sid); // Debug log
-      const expiresAt = new Date(Date.now() + this.ttl * 1000);
-      const { error } = await supabaseAdmin
-        .from('sessions')
-        .update({
-          expires_at: expiresAt.toISOString(),
-          session: JSON.stringify(session) // Update session data as well
-        })
-        .eq('sid', sid);
-
-      if (error) {
-        console.error('Session touch error:', error);
-        return callback(error);
-      }
-
-      console.log('Session touched successfully:', sid); // Debug log
-      callback();
-    } catch (err) {
-      console.error('Unexpected error in session touch:', err);
-      callback(err);
+    if (error) {
+      console.error('SupabaseStore: Error destroying session:', error);
+    } else {
+      console.log('SupabaseStore: Session destroyed successfully');
     }
   }
 }
@@ -191,30 +82,32 @@ const app = express();
 app.use(express.static('public'));
 app.use(express.json());
 
+// Initialize session store
+const sessionStore = new SupabaseStore();
+
 // 2) Сессии
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'your-secret-key',
-  resave: false,
-  saveUninitialized: false,
-  rolling: true,
-  store: new SupabaseStore(),
+  store: sessionStore,
+  secret: process.env.SESSION_SECRET,
+  resave: true,
+  saveUninitialized: true,
   cookie: {
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
-    maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
     sameSite: 'lax',
-    domain: process.env.NODE_ENV === 'production' ? '.sosmark.ru' : undefined
+    domain: process.env.NODE_ENV === 'production' ? 'sosmark.ru' : undefined
   }
 }));
 
-// Debug middleware to log session state
+// Debug middleware for session
 app.use((req, res, next) => {
   console.log('Session state:', {
     id: req.sessionID,
     hasSession: !!req.session,
-    hasUser: !!req.user,
-    sessionData: req.session,
-    passport: req.session?.passport
+    hasPassport: !!req.session?.passport,
+    passportUser: req.session?.passport?.user,
+    cookies: req.cookies
   });
   next();
 });
@@ -379,14 +272,20 @@ app.get('/auth/discord/callback',
       }, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        maxAge: 24 * 60 * 60 * 1000, // 24 hours
+        maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
         sameSite: 'lax',
-        domain: process.env.NODE_ENV === 'production' ? '.sosmark.ru' : undefined
+        domain: process.env.NODE_ENV === 'production' ? 'sosmark.ru' : undefined
       });
 
-      res.redirect('/');
+      // Ensure session is saved
+      req.session.save((err) => {
+        if (err) {
+          console.error('Error saving session:', err);
+        }
+        res.redirect('/');
+      });
     } catch (error) {
-      console.error('Error fetching SPWorlds data:', error);
+      console.error('Error in auth callback:', error);
       res.redirect('/');
     }
   }
