@@ -19,6 +19,8 @@ import crypto from 'crypto';
 import axios from 'axios';
 import { Redis } from '@upstash/redis';
 import { EventEmitter } from 'events';
+import compression from 'compression';
+import path from 'path';
 
 // --- Инициализация Redis клиента ---
 const redis = new Redis({
@@ -171,7 +173,24 @@ passport.use(new DiscordStrategy({
 
 // --- Инициализация приложения ---
 const app = express();
-app.use(express.static('public'));
+
+// Включаем сжатие для всех ответов
+app.use(compression());
+
+// Оптимизация статических файлов
+app.use(express.static('public', {
+  maxAge: '1d',
+  etag: true,
+  lastModified: true,
+  setHeaders: (res, path) => {
+    if (path.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-cache');
+    } else if (path.endsWith('.css') || path.endsWith('.js')) {
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+    }
+  }
+}));
+
 app.use(express.json());
 app.use(cookieParser());
 
@@ -224,6 +243,7 @@ app.get('/auth/discord/callback', (req, res, next) => {
 
 // --- Auth-check ---
 app.get('/api/auth/user', ensureAuth, (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
   res.json({
     discord_username: req.user.discord_username,
     discord_id: req.user.discord_id,
@@ -442,7 +462,13 @@ paymentRouter.post('/payment-webhook', async (req, res, next) => {
 app.use('/api', paymentRouter);
 
 // --- Страницы и транзакции ---
-app.get('/payment-success', (req, res) => res.sendFile('payment-success.html', { root: './public' }));
+app.get('/', (req, res) => {
+  res.sendFile(path.join(process.cwd(), 'public', 'index.html'));
+});
+
+app.get('/payment-success', (req, res) => {
+  res.sendFile(path.join(process.cwd(), 'public', 'payment-success.html'));
+});
 
 app.get('/api/transactions', ensureAuth, async (req, res, next) => {
   try {
