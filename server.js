@@ -413,24 +413,6 @@ passport.use(new DiscordStrategy({
   }
 }));
 
-// Оптимизируем callback
-app.get('/auth/discord/callback', (req, res, next) => {
-  passport.authenticate('discord', { failureRedirect: '/?error=auth_failed' })(req, res, next);
-}, async (req, res) => {
-  try {
-    // Сразу сохраняем сессию и редиректим
-    req.session.save(() => {
-      res.redirect('/');
-    });
-  } catch (err) {
-    logUserAction('error', req.user, { 
-      error: 'Auth callback failed',
-      details: err.message
-    });
-    res.redirect('/?error=process_failed');
-  }
-});
-
 // --- Инициализация приложения ---
 const app = express();
 
