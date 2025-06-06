@@ -188,9 +188,13 @@
       }
 
       isPlaying = true;
-      document.getElementById('game-status').textContent = 'Игра началась!';
-      document.getElementById('game-form').style.display = 'none';
-      document.getElementById('game-board').style.display = 'grid';
+      const gameStatus = document.getElementById('game-status');
+      const gameForm = document.getElementById('game-form');
+      const grid = document.getElementById('grid');
+      
+      if (gameStatus) gameStatus.textContent = 'Игра началась!';
+      if (gameForm) gameForm.style.display = 'none';
+      if (grid) grid.style.display = 'grid';
 
       try {
         const response = await fetch('/api/minesweeper', {
@@ -217,7 +221,10 @@
         updateBalance(result.newBalance);
 
         // Показываем множитель
-        document.getElementById('multiplier').textContent = `Множитель: ${multiplier}x`;
+        const multiplierElement = document.getElementById('multiplier');
+        if (multiplierElement) {
+          multiplierElement.textContent = `Множитель: ${multiplier}x`;
+        }
       } catch (error) {
         console.error('Error playing game:', error);
         alert('Произошла ошибка при игре');
@@ -308,10 +315,17 @@
     function resetGame() {
       selectedCells = [];
       isPlaying = false;
+      const gameForm = document.getElementById('game-form');
+      const grid = document.getElementById('grid');
+      const gameStatus = document.getElementById('game-status');
+      
+      if (gameForm) gameForm.style.display = 'block';
+      if (grid) grid.style.display = 'none';
+      if (gameStatus) gameStatus.innerHTML = '';
+      
       document.querySelectorAll('.mine-cell').forEach(cell => {
-        cell.classList.remove('selected', 'mine');
+        cell.classList.remove('selected', 'mine', 'safe');
       });
-      document.getElementById('game-status').innerHTML = '';
     }
 
     // Проверяем аутентификацию при загрузке страницы

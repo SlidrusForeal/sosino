@@ -172,6 +172,10 @@
     // Функция для игры
     async function playGame() {
       if (isSpinning) return;
+      if (!userData) {
+        alert('Необходимо авторизоваться!');
+        return;
+      }
       if (currentBet > userBalance) {
         alert('Недостаточно средств!');
         return;
@@ -192,6 +196,12 @@
           })
         });
 
+        if (response.status === 401) {
+          // Если сессия истекла, обновляем страницу
+          window.location.reload();
+          return;
+        }
+
         if (!response.ok) {
           throw new Error('Game error');
         }
@@ -203,19 +213,25 @@
 
         // Показываем результат
         const resultDiv = document.getElementById('game-status');
-        resultDiv.innerHTML = `
-          <div class="result ${result.won ? 'win' : 'lose'}">
-            <h3>${result.won ? 'Победа!' : 'Проигрыш'}</h3>
-            <p>Комбинация: ${result.result.join(' ')}</p>
-            <p>${result.won ? 'Выигрыш: ' + (currentBet * result.multiplier) : 'Потеряно: ' + currentBet} AR</p>
-          </div>
-        `;
+        if (resultDiv) {
+          resultDiv.innerHTML = `
+            <div class="result ${result.won ? 'win' : 'lose'}">
+              <h3>${result.won ? 'Победа!' : 'Проигрыш'}</h3>
+              <p>Комбинация: ${result.result.join(' ')}</p>
+              <p>${result.won ? 'Выигрыш: ' + (currentBet * result.multiplier) : 'Потеряно: ' + currentBet} AR</p>
+            </div>
+          `;
+        }
 
         // Обновляем символы на слотах
         setTimeout(() => {
-          document.getElementById('slot1').textContent = result.result[0];
-          document.getElementById('slot2').textContent = result.result[1];
-          document.getElementById('slot3').textContent = result.result[2];
+          const slot1 = document.getElementById('slot1');
+          const slot2 = document.getElementById('slot2');
+          const slot3 = document.getElementById('slot3');
+          
+          if (slot1) slot1.textContent = result.result[0];
+          if (slot2) slot2.textContent = result.result[1];
+          if (slot3) slot3.textContent = result.result[2];
         }, 2000);
       } catch (error) {
         console.error('Error playing game:', error);
