@@ -145,12 +145,13 @@
 
     // Функция для анимации слотов
     function animateSlots() {
-      const reels = document.querySelectorAll('.reel');
-      reels.forEach(reel => {
-        const symbols = ['🍒', '🍋', '🍇', '🔔', '💎'];
+      const slots = document.querySelectorAll('.slot');
+      const symbols = ['🍒', '🍋', '🍇', '🔔', '💎'];
+      
+      slots.forEach(slot => {
         let currentIndex = 0;
         const interval = setInterval(() => {
-          reel.textContent = symbols[currentIndex];
+          slot.textContent = symbols[currentIndex];
           currentIndex = (currentIndex + 1) % symbols.length;
         }, 100);
         setTimeout(() => clearInterval(interval), 2000);
@@ -175,8 +176,7 @@
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            bet: currentBet,
-            userId: userData.id
+            bet: currentBet
           })
         });
 
@@ -198,6 +198,13 @@
             <p>${result.won ? 'Выигрыш: ' + (currentBet * result.multiplier) : 'Потеряно: ' + currentBet} AR</p>
           </div>
         `;
+
+        // Обновляем символы на слотах
+        setTimeout(() => {
+          document.getElementById('slot1').textContent = result.result[0];
+          document.getElementById('slot2').textContent = result.result[1];
+          document.getElementById('slot3').textContent = result.result[2];
+        }, 2000);
       } catch (error) {
         console.error('Error playing game:', error);
         alert('Произошла ошибка при игре');
@@ -206,8 +213,17 @@
       }
     }
 
+    // Добавляем обработчик отправки формы
+    document.getElementById('game-form').addEventListener('submit', function(e) {
+      e.preventDefault();
+      playGame();
+    });
+
     // Проверяем аутентификацию при загрузке страницы
-    document.addEventListener('DOMContentLoaded', checkAuth);
+    checkAuth();
+
+    // Периодически проверяем состояние аутентификации
+    setInterval(checkAuth, 30000); // каждые 30 секунд
   </script>
 </body>
 </html>
