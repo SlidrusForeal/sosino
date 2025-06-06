@@ -56,7 +56,64 @@ class RedisSessionStore extends EventEmitter {
     }
   }
 
-  // TODO: Реализовать touch() и regenerate() при необходимости.
+  async touch(sid, sessionData) {
+    // Продлевает время жизни без изменения данных
+    try {
+      const existing = await this.get(sid);
+      if (existing) {
+        await this.set(sid, existing);
+      }
+    } catch (err) {
+      this.emit('disconnect', err);
+    }
+  }
+
+  async regenerate(req, fn) {
+    try {
+      const oldSid = req.sessionID;
+      const newSid = crypto.randomBytes(32).toString('hex');
+      const oldSession = await this.get(oldSid);
+      if (oldSession) {
+        await this.set(newSid, oldSession);
+      }
+      await this.destroy(oldSid);
+      req.sessionID = newSid;
+      fn(null);
+    } catch (err) {
+      fn(err);
+    }
+  }
+
+  async all(callback) {
+    try {
+      const keys = await redis.keys('sess:*');
+      const sessions = await Promise.all(
+        keys.map(key => this.get(key.replace('sess:', '')))
+      );
+      callback(null, sessions.filter(Boolean));
+    } catch (err) {
+      callback(err);
+    }
+  }
+
+  async length(callback) {
+    try {
+      const keys = await redis.keys('sess:*');
+      callback(null, keys.length);
+    } catch (err) {
+      callback(err);
+    }
+  }
+
+  async clear(callback) {
+    try {
+      const keys = await redis.keys('sess:*');
+      await Promise.all(keys.map(key => redis.del(key)));
+      callback(null);
+    } catch (err) {
+      callback(err);
+    }
+  }
 }
 
 // --- Passport конфигурация ---
@@ -121,8 +178,8 @@ app.use(cookieParser());
 app.use(session({
   store: new RedisSessionStore(),
   secret: process.env.SESSION_SECRET || 'your-secret-key',
-  resave: false,
-  saveUninitialized: false,
+  resave: true,
+  saveUninitialized: true,
   rolling: true,
   cookie: {
     secure: process.env.NODE_ENV === 'production',
