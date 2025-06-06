@@ -253,19 +253,23 @@ app.get('/auth/discord', (req, res, next) => {
   
   // Set a timeout for the authentication process
   const authTimeout = setTimeout(() => {
-    console.error('Discord authentication timeout');
-    return res.redirect('/?error=timeout');
+    if (!res.headersSent) {
+      console.error('Discord authentication timeout');
+      res.redirect('/?error=timeout');
+    }
   }, 10000); // 10 second timeout
 
   passport.authenticate('discord', {
     scope: ['identify', 'email'],
     prompt: 'consent',
-    state: crypto.randomBytes(32).toString('hex') // Add state parameter for security
+    state: crypto.randomBytes(32).toString('hex')
   })(req, res, (err) => {
     clearTimeout(authTimeout);
     if (err) {
       console.error('Discord authentication error:', err);
-      return res.redirect('/?error=auth_failed');
+      if (!res.headersSent) {
+        return res.redirect('/?error=auth_failed');
+      }
     }
     next();
   });
@@ -277,8 +281,10 @@ app.get('/auth/discord/callback',
     
     // Set a timeout for the callback process
     const callbackTimeout = setTimeout(() => {
-      console.error('Discord callback timeout');
-      return res.redirect('/?error=callback_timeout');
+      if (!res.headersSent) {
+        console.error('Discord callback timeout');
+        res.redirect('/?error=callback_timeout');
+      }
     }, 10000); // 10 second timeout
 
     passport.authenticate('discord', { 
@@ -289,7 +295,9 @@ app.get('/auth/discord/callback',
       clearTimeout(callbackTimeout);
       if (err) {
         console.error('Discord callback error:', err);
-        return res.redirect('/?error=callback_failed');
+        if (!res.headersSent) {
+          return res.redirect('/?error=callback_failed');
+        }
       }
       next();
     });
@@ -299,13 +307,18 @@ app.get('/auth/discord/callback',
       console.log('Processing Discord callback...');
       if (!req.user) {
         console.error('No user in request after authentication');
-        return res.redirect('/?error=no_user');
+        if (!res.headersSent) {
+          return res.redirect('/?error=no_user');
+        }
+        return;
       }
 
       // Set a timeout for SPWorlds API call
       const spworldsTimeout = setTimeout(() => {
-        console.error('SPWorlds API timeout');
-        return res.redirect('/?error=spworlds_timeout');
+        if (!res.headersSent) {
+          console.error('SPWorlds API timeout');
+          res.redirect('/?error=spworlds_timeout');
+        }
       }, 5000); // 5 second timeout
 
       // Get user info from SPWorlds API with timeout
@@ -344,14 +357,21 @@ app.get('/auth/discord/callback',
 
       if (error) {
         console.error('Error updating user:', error);
-        return res.redirect('/?error=update_failed');
+        if (!res.headersSent) {
+          return res.redirect('/?error=update_failed');
+        }
+        return;
       }
 
       console.log('Authentication successful, redirecting to home...');
-      res.redirect('/');
+      if (!res.headersSent) {
+        res.redirect('/');
+      }
     } catch (error) {
       console.error('Error in Discord callback:', error);
-      res.redirect('/?error=process_failed');
+      if (!res.headersSent) {
+        res.redirect('/?error=process_failed');
+      }
     }
   }
 );
@@ -893,10 +913,12 @@ app.get('/api/transactions', async (req, res) => {
   }
 });
 
-// Error handling middleware
+// Add error handling middleware
 app.use((err, req, res, next) => {
-  console.error('Error:', err);
-  res.status(500).json({ error: 'Internal server error' });
+  console.error('Global error handler:', err);
+  if (!res.headersSent) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 app.listen(3000, () => console.log('🎰 Казино запущено на http://localhost:3000'));
