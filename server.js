@@ -1023,27 +1023,41 @@ app.post('/api/games/:game', async (req, res) => {
 
     switch (game) {
       case 'coin':
+        const { choice } = req.body;
+        // Создаем эффект "почти выигрыша" - показываем, что монета почти упала на выбранную сторону
         return res.status(200).json({
           won: false,
-          result: 'tails', // Always return opposite of player's choice
+          result: choice === 'heads' ? 'tails' : 'heads',
+          nearMiss: true, // Добавляем флаг "почти выигрыш"
+          nearResult: choice, // Показываем, что было близко к выбранной стороне
           newBalance,
           bet
         });
 
       case 'slots':
+        // Создаем эффект "почти выигрыша" - два символа совпадают, третий почти
+        const symbols = ['🍒', '🍋', '🍇', '🔔', '💎'];
+        const winningSymbols = [symbols[0], symbols[0], symbols[1]]; // Два одинаковых символа
         return res.status(200).json({
           won: false,
-          result: ['🍒', '🍋', '🍇'], // Always return losing combination
+          result: winningSymbols,
+          nearMiss: true,
+          message: "Так близко! Два символа совпали!",
           newBalance,
           bet
         });
 
       case 'roulette':
         const { color } = req.body;
+        // Создаем эффект "почти выигрыша" - шарик останавливается рядом с выбранным цветом
+        const result = Math.floor(Math.random() * 37);
+        const resultColor = result === 0 ? 'green' : (result % 2 === 0 ? 'black' : 'red');
         return res.status(200).json({
           won: false,
-          colorResult: color === 'red' ? 'black' : 'red', // Always return opposite of player's choice
-          result: 0,
+          colorResult: resultColor,
+          result: result,
+          nearMiss: true,
+          message: `Шарик остановился на ${result}! Почти попал на ${color}!`,
           newBalance,
           bet
         });
@@ -1053,9 +1067,17 @@ app.post('/api/games/:game', async (req, res) => {
         if (!cells || !Array.isArray(cells)) {
           return res.status(400).json({ error: 'Invalid cells selection' });
         }
+        // Создаем эффект "почти выигрыша" - мина рядом с выбранной клеткой
+        const adjacentCells = cells.map(cell => {
+          const [x, y] = cell.split(',').map(Number);
+          return [`${x+1},${y}`, `${x-1},${y}`, `${x},${y+1}`, `${x},${y-1}`];
+        }).flat();
+        const mines = adjacentCells.slice(0, 3); // Размещаем мины рядом с выбранными клетками
         return res.status(200).json({
           won: false,
-          mines: cells, // Always place mines in player's selected cells
+          mines: mines,
+          nearMiss: true,
+          message: "Ой! Мины были совсем рядом!",
           newBalance,
           bet
         });
