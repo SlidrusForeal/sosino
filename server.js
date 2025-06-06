@@ -148,6 +148,17 @@ app.use(session({
   }
 }));
 
+// Debug middleware to log session state
+app.use((req, res, next) => {
+  console.log('Session state:', {
+    id: req.sessionID,
+    hasSession: !!req.session,
+    hasUser: !!req.user,
+    sessionData: req.session
+  });
+  next();
+});
+
 // 3) Cookie-парсер
 app.use(cookieParser());
 
@@ -158,23 +169,28 @@ app.use(passport.session());
 // --- Настройка Passport-Discord ---
 passport.serializeUser((user, done) => {
   console.log('Serializing user:', user); // Debug log
-  // Store the entire user object in the session
-  done(null, user);
+  // Store minimal user data
+  const userData = {
+    id: user.id,
+    discord_id: user.discord_id,
+    discord_username: user.discord_username
+  };
+  console.log('Serialized user data:', userData); // Debug log
+  done(null, userData);
 });
 
-passport.deserializeUser(async (user, done) => {
-  console.log('Deserializing user:', user); // Debug log
+passport.deserializeUser(async (userData, done) => {
+  console.log('Deserializing user data:', userData); // Debug log
   try {
-    // If we already have the user object, use it
-    if (user && user.discord_id) {
-      return done(null, user);
+    if (!userData || !userData.discord_id) {
+      console.error('Invalid user data during deserialization');
+      return done(null, false);
     }
 
-    // Otherwise, fetch from database
-    const { data: userData, error } = await supabaseAdmin
+    const { data: user, error } = await supabaseAdmin
       .from('users')
       .select('*')
-      .eq('discord_id', user.discord_id)
+      .eq('discord_id', userData.discord_id)
       .maybeSingle();
 
     if (error) {
@@ -182,13 +198,13 @@ passport.deserializeUser(async (user, done) => {
       return done(error);
     }
 
-    if (!userData) {
+    if (!user) {
       console.error('User not found during deserialization');
       return done(null, false);
     }
 
-    console.log('Deserialized user:', userData);
-    done(null, userData);
+    console.log('Deserialized user:', user);
+    done(null, user);
   } catch (error) {
     console.error('Error in deserializeUser:', error);
     done(error);
@@ -264,6 +280,9 @@ app.get('/auth/discord/callback',
   }), 
   async (req, res) => {
     try {
+      console.log('Auth callback - Session before:', req.session); // Debug log
+      console.log('Auth callback - User before:', req.user); // Debug log
+
       // Get user info from SPWorlds API
       const spworldsResponse = await axios.get(`https://spworlds.ru/api/public/users/${req.user.discord_id}`, {
         headers: {
@@ -293,6 +312,8 @@ app.get('/auth/discord/callback',
         if (err) {
           console.error('Error saving session:', err);
         }
+        console.log('Auth callback - Session after:', req.session); // Debug log
+        console.log('Auth callback - User after:', req.user); // Debug log
         res.redirect('/');
       });
     } catch (error) {
@@ -307,6 +328,7 @@ app.get('/api/auth/user', (req, res) => {
   try {
     console.log('Auth check - Session:', req.session); // Debug log
     console.log('Auth check - User:', req.user); // Debug log
+    console.log('Auth check - Session ID:', req.sessionID); // Debug log
 
     if (!req.isAuthenticated()) {
       console.log('User not authenticated'); // Debug log
