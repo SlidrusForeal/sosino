@@ -8,6 +8,7 @@ import { supabase, supabaseAdmin, createTransaction, getBalance, getUser } from 
 import fs from 'fs';
 import crypto from 'crypto';
 import axios from 'axios';
+const rateLimit = require('express-rate-limit');
 
 // Custom Session Store using Supabase
 class SupabaseStore extends session.Store {
@@ -400,26 +401,32 @@ app.get('/auth/discord/callback',
   }
 );
 
-// Добавляем middleware для проверки аутентификации
-const ensureAuthenticated = (req, res, next) => {
-  console.log('Checking authentication:', {
-    isAuthenticated: req.isAuthenticated(),
-    session: req.session,
-    user: req.user
-  });
+// Добавляем rate limiting
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 минут
+  max: 100, // максимум 100 запросов с одного IP
+  message: { error: 'Too many requests, please try again later.' }
+});
 
-  if (req.isAuthenticated()) {
-    return next();
-  }
-  res.status(401).json({ error: 'Unauthorized' });
-};
+// Создаем отдельный лимитер для auth/user
+const authUserLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 минута
+  max: 5, // максимум 5 запросов в минуту
+  message: { error: 'Too many authentication checks, please try again later.' }
+});
 
-// Применяем middleware ко всем защищенным маршрутам
-app.use('/api/*', ensureAuthenticated);
+// Применяем общий rate limiter ко всем API запросам
+app.use('/api/', apiLimiter);
 
 // --- Проверка, кто сейчас залогинен ---
-app.get('/api/auth/user', async (req, res) => {
+app.get('/api/auth/user', authUserLimiter, async (req, res) => {
   try {
+    // Проверяем наличие кэшированных данных в сессии
+    if (req.session.lastAuthCheck && 
+        Date.now() - req.session.lastAuthCheck < 30000) { // 30 секунд кэша
+      return res.json(req.session.cachedUserData);
+    }
+
     console.log('Auth user endpoint - Session:', {
       id: req.sessionID,
       passport: req.session.passport,
@@ -440,6 +447,10 @@ app.get('/api/auth/user', async (req, res) => {
       balance: req.user.balance || 0
     };
 
+    // Кэшируем данные
+    req.session.lastAuthCheck = Date.now();
+    req.session.cachedUserData = userData;
+
     console.log('Sending user data:', userData);
     return res.json(userData);
   } catch (err) {
@@ -447,6 +458,31 @@ app.get('/api/auth/user', async (req, res) => {
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+// Добавляем middleware для проверки аутентификации с кэшированием
+const ensureAuthenticated = (req, res, next) => {
+  // Проверяем кэш аутентификации
+  if (req.session.lastAuthCheck && 
+      Date.now() - req.session.lastAuthCheck < 30000) { // 30 секунд кэша
+    return next();
+  }
+
+  console.log('Checking authentication:', {
+    isAuthenticated: req.isAuthenticated(),
+    session: req.session,
+    user: req.user
+  });
+
+  if (req.isAuthenticated()) {
+    // Обновляем время последней проверки
+    req.session.lastAuthCheck = Date.now();
+    return next();
+  }
+  res.status(401).json({ error: 'Unauthorized' });
+};
+
+// Применяем middleware ко всем защищенным маршрутам
+app.use('/api/*', ensureAuthenticated);
 
 // --- Выход из аккаунта ---
 app.get('/auth/logout', (req, res) => {
