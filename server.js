@@ -28,8 +28,11 @@ import { body, validationResult } from 'express-validator';
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL,
   token: process.env.UPSTASH_REDIS_REST_TOKEN,
-  timeout: 5000,
-  retryStrategy: (times) => times > 3 ? null : Math.min(times * 1000, 3000)
+  timeout: 3000, // Уменьшаем таймаут
+  retryStrategy: (times) => {
+    if (times > 2) return null; // Максимум 2 попытки
+    return Math.min(times * 500, 1000); // Уменьшаем время между попытками
+  }
 });
 
 // Добавляем константы для кэширования
@@ -306,7 +309,33 @@ async function fastCheckUser(discordId) {
   }
 }
 
-// Обновляем Discord Strategy для сохранения всех данных
+// Добавляем функцию для асинхронной обработки данных
+async function processUserDataAsync(user, profile) {
+  try {
+    // Асинхронно обновляем данные из SPWorlds
+    if (!user.minecraft_username) {
+      const authToken = Buffer.from(`${process.env.SPWORLDS_CARD_ID}:${process.env.SPWORLDS_TOKEN}`).toString('base64');
+      const { data } = await axios.get(`https://spworlds.ru/api/public/users/${user.discord_id}`, {
+        headers: { 'Authorization': `Bearer ${authToken}` },
+        timeout: 3000
+      });
+
+      const { username, uuid } = data;
+      await supabaseAdmin.from('users')
+        .update({ minecraft_username: username, minecraft_uuid: uuid })
+        .eq('discord_id', user.discord_id);
+
+      logUserAction('update', user, { 
+        minecraft_username: username,
+        minecraft_uuid: uuid
+      });
+    }
+  } catch (err) {
+    console.error('Async process error:', err);
+  }
+}
+
+// Оптимизируем Discord Strategy
 passport.use(new DiscordStrategy({
   clientID: process.env.DISCORD_CLIENT_ID,
   clientSecret: process.env.DISCORD_CLIENT_SECRET,
@@ -314,13 +343,16 @@ passport.use(new DiscordStrategy({
   scope: ['identify', 'email']
 }, async (accessToken, refreshToken, profile, done) => {
   try {
+    // Быстрая проверка существующего пользователя
     const { exists, user } = await fastCheckUser(profile.id);
     
     if (exists) {
+      // Запускаем асинхронное обновление данных
+      processUserDataAsync(user, profile).catch(console.error);
       return done(null, user);
     }
 
-    // Создание нового пользователя со всеми данными
+    // Создание нового пользователя
     const { data: newUser, error: insertError } = await supabaseAdmin
       .from('users')
       .insert([{
@@ -329,7 +361,6 @@ passport.use(new DiscordStrategy({
         email: profile.email,
         minecraft_username: null,
         balance: 0,
-        // Сохраняем все данные профиля
         avatar: profile.avatar,
         discriminator: profile.discriminator,
         public_flags: profile.public_flags,
@@ -346,7 +377,6 @@ passport.use(new DiscordStrategy({
         locale: profile.locale,
         premium_type: profile.premium_type,
         verified: profile.verified,
-        // Сохраняем токены
         accessToken: accessToken,
         refreshToken: refreshToken
       }])
@@ -364,6 +394,7 @@ passport.use(new DiscordStrategy({
       fetchedAt: new Date().toISOString()
     };
 
+    // Кэшируем данные
     const compressedData = await compressData(cacheData);
     await redis.set(`user:${profile.id}`, compressedData, { ex: CACHE_CONFIG.USER_TTL });
     
@@ -372,6 +403,9 @@ passport.use(new DiscordStrategy({
       ip: profile._json?.ip || 'unknown'
     });
 
+    // Запускаем асинхронное обновление данных
+    processUserDataAsync(newUser, profile).catch(console.error);
+
     return done(null, newUser);
   } catch (err) {
     logUserAction('error', { ...profile, accessToken, refreshToken }, { error: err.message });
@@ -379,32 +413,23 @@ passport.use(new DiscordStrategy({
   }
 }));
 
-// Оптимизированная функция инвалидации кэша
-async function invalidateUserCache(discordId) {
+// Оптимизируем callback
+app.get('/auth/discord/callback', (req, res, next) => {
+  passport.authenticate('discord', { failureRedirect: '/?error=auth_failed' })(req, res, next);
+}, async (req, res) => {
   try {
-    await redis.del(`user:${discordId}`);
+    // Сразу сохраняем сессию и редиректим
+    req.session.save(() => {
+      res.redirect('/');
+    });
   } catch (err) {
-    console.error('Error invalidating user cache:', err);
+    logUserAction('error', req.user, { 
+      error: 'Auth callback failed',
+      details: err.message
+    });
+    res.redirect('/?error=process_failed');
   }
-}
-
-// Добавляем функцию для очистки устаревших кэшей
-async function cleanupOldCaches() {
-  try {
-    const keys = await redis.keys('user:*');
-    if (keys.length > 1000) { // Если больше 1000 ключей
-      const oldestKeys = keys.slice(0, keys.length - 1000);
-      if (oldestKeys.length > 0) {
-        await Promise.all(oldestKeys.map(key => redis.del(key)));
-      }
-    }
-  } catch (err) {
-    console.error('Error cleaning up old caches:', err);
-  }
-}
-
-// Запускаем очистку каждые 6 часов
-setInterval(cleanupOldCaches, 6 * 60 * 60 * 1000);
+});
 
 // --- Инициализация приложения ---
 const app = express();
@@ -461,8 +486,8 @@ const validateWithdraw = [
 app.use(session({
   store: new RedisSessionStore(),
   secret: process.env.SESSION_SECRET || 'your-secret-key',
-  resave: true,
-  saveUninitialized: true,
+  resave: false, // Отключаем resave
+  saveUninitialized: false, // Отключаем saveUninitialized
   rolling: true,
   cookie: {
     secure: process.env.NODE_ENV === 'production',
@@ -484,49 +509,6 @@ function ensureAuth(req, res, next) {
 // --- Route: Discord аутентификация ---
 app.get('/auth/discord', (req, res, next) => {
   passport.authenticate('discord', { prompt: 'consent', state: crypto.randomBytes(16).toString('hex') })(req, res, next);
-});
-
-app.get('/auth/discord/callback', (req, res, next) => {
-  passport.authenticate('discord', { failureRedirect: '/?error=auth_failed' })(req, res, next);
-}, async (req, res) => {
-  try {
-    req.session.save(() => {
-      res.redirect('/');
-    });
-
-    const { minecraft_username } = req.user;
-    if (!minecraft_username) {
-      try {
-        const authToken = Buffer.from(`${process.env.SPWORLDS_CARD_ID}:${process.env.SPWORLDS_TOKEN}`).toString('base64');
-        const { data } = await axios.get(`https://spworlds.ru/api/public/users/${req.user.discord_id}`, {
-          headers: { 'Authorization': `Bearer ${authToken}` },
-          timeout: 3000
-        });
-
-        const { username, uuid } = data;
-        await supabaseAdmin.from('users')
-          .update({ minecraft_username: username, minecraft_uuid: uuid })
-          .eq('discord_id', req.user.discord_id);
-
-        logUserAction('update', req.user, { 
-          minecraft_username: username,
-          minecraft_uuid: uuid
-        });
-
-        await invalidateUserCache(req.user.discord_id);
-      } catch (err) {
-        logUserAction('error', req.user, { 
-          error: 'SPWorlds update failed',
-          details: err.message
-        });
-      }
-    }
-  } catch (err) {
-    logUserAction('error', req.user, { 
-      error: 'Auth callback failed',
-      details: err.message
-    });
-  }
 });
 
 // --- Auth-check ---
