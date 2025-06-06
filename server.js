@@ -156,9 +156,10 @@ app.use(express.json());
 // 2) Сессии
 app.use(session({
   secret: process.env.SESSION_SECRET || 'your-secret-key',
-  resave: true,
-  saveUninitialized: true,
+  resave: false,
+  saveUninitialized: false,
   rolling: true,
+  store: new SupabaseStore(),
   cookie: {
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
