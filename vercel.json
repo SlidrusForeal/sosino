@@ -2,7 +2,7 @@
   "version": 2,
   "builds": [
     {
-      "src": "api/slots.js",
+      "src": "server.js",
       "use": "@vercel/node"
     },
     {
@@ -12,16 +12,16 @@
   ],
   "routes": [
     {
-      "src": "/api/slots",
-      "dest": "/api/slots.js"
-    },
-    {
-      "src": "/api/auth/(.*)",
-      "dest": "/server.js"
+      "src": "/api/(.*)",
+      "dest": "server.js"
     },
     {
       "src": "/auth/(.*)",
-      "dest": "/server.js"
+      "dest": "server.js"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/public/$1"
     },
     {
       "src": "/payment-success",
@@ -29,10 +29,6 @@
     },
     {
       "handle": "filesystem"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/public/$1"
     },
     {
       "src": "/(.*)",
