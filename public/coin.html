@@ -63,6 +63,7 @@
   <script>
     let currentBet = 1;
     let userBalance = 0;
+    let userData = null;
 
     // Функция для обновления UI в зависимости от состояния аутентификации
     function updateUI(user) {
@@ -99,12 +100,12 @@
       }
     }
 
-    // Функция для проверки аутентификации
+    // Функция для проверки авторизации
     async function checkAuth() {
       try {
         const response = await fetch('/api/auth/user');
         if (response.ok) {
-          const userData = await response.json();
+          userData = await response.json();
           userBalance = userData.balance;
           document.getElementById('balance').textContent = userData.balance;
           document.getElementById('gameSection').style.display = 'block';
@@ -149,7 +150,8 @@
           },
           body: JSON.stringify({
             choice,
-            bet: currentBet
+            bet: currentBet,
+            userId: userData.id
           })
         });
 
@@ -160,7 +162,7 @@
         const result = await response.json();
         
         // Обновляем баланс
-        updateBalance(result.newBalance || userBalance - currentBet);
+        updateBalance(result.newBalance);
 
         // Показываем результат
         const resultDiv = document.getElementById('game-status');
