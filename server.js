@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import session from 'express-session';
+import FileStore from 'session-file-store';
 import cookieParser from 'cookie-parser';
 import passport from 'passport';
 import DiscordStrategy from 'passport-discord';
@@ -8,6 +9,8 @@ import { supabase, supabaseAdmin, createTransaction, getBalance, getUser } from 
 import fs from 'fs';
 import crypto from 'crypto';
 import axios from 'axios';
+
+const FileStoreSession = FileStore(session);
 
 // Debug log for SPWorlds credentials
 console.log('SPWorlds Credentials:', {
@@ -23,6 +26,12 @@ app.use(express.json());
 
 // 2) Сессии
 app.use(session({
+  store: new FileStoreSession({
+    path: '/tmp/sessions',
+    ttl: 86400, // 24 hours
+    reapInterval: 3600, // Clean up expired sessions every hour
+    secret: process.env.SESSION_SECRET || 'your-secret-key'
+  }),
   secret: process.env.SESSION_SECRET || 'your-secret-key',
   resave: true,
   saveUninitialized: true,
