@@ -567,19 +567,26 @@ app.post('/api/slots', async (req, res) => {
       return res.status(403).json({ error: 'Insufficient funds' });
     }
 
-    const reels = ['🍒', '🍋', '🍇', '🔔', '💎'];
-    const symbol = reels[Math.floor(Math.random() * reels.length)];
-    const result = Math.random() < 0.5
-      ? [symbol, symbol, pickOther(symbol)]
-      : [pickOther(symbol), symbol, symbol];
-
-    function pickOther(sym) {
-      const pool = reels.filter(s => s !== sym);
-      return pool[Math.floor(Math.random() * pool.length)];
-    }
-
+    // Create transaction for bet
     await createTransaction(req.user.id, 'game_loss', bet, 'slots');
-    return res.json({ result, won: false, bet });
+
+    // Update user balance
+    const { error: updateError } = await supabaseAdmin
+      .from('users')
+      .update({ balance: balance - bet })
+      .eq('id', req.user.id);
+
+    if (updateError) throw updateError;
+
+    const reels = ['🍒', '🍋', '🍇', '🔔', '💎'];
+    const result = [reels[0], reels[1], reels[2]];
+
+    return res.json({ 
+      result,
+      won: false,
+      bet,
+      newBalance: balance - bet
+    });
   } catch (err) {
     console.error('Error in slots game:', err);
     return res.status(500).json({ error: 'Error processing game' });
@@ -591,7 +598,7 @@ app.post('/api/roulette', async (req, res) => {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  const color = req.body.color; // 'red' или 'black'
+  const { color } = req.body;
   const bet = parseInt(req.body.bet, 10) || 1;
 
   if (isNaN(bet) || bet < 1 || bet > 1000) {
@@ -604,10 +611,24 @@ app.post('/api/roulette', async (req, res) => {
       return res.status(403).json({ error: 'Insufficient funds' });
     }
 
-    // «Подставной» проигрыш
-    const fakeColor = (color === 'red' ? 'black' : 'red');
+    // Create transaction for bet
     await createTransaction(req.user.id, 'game_loss', bet, 'roulette');
-    return res.json({ result: Math.floor(Math.random() * 37), colorResult: fakeColor, won: false, bet });
+
+    // Update user balance
+    const { error: updateError } = await supabaseAdmin
+      .from('users')
+      .update({ balance: balance - bet })
+      .eq('id', req.user.id);
+
+    if (updateError) throw updateError;
+
+    return res.json({ 
+      result: Math.floor(Math.random() * 37),
+      colorResult: color === 'red' ? 'black' : 'red',
+      won: false,
+      bet,
+      newBalance: balance - bet
+    });
   } catch (err) {
     console.error('Error in roulette game:', err);
     return res.status(500).json({ error: 'Error processing game' });
@@ -619,7 +640,7 @@ app.post('/api/minesweeper', async (req, res) => {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  const { cells } = req.body; // массив с тремя числами, которые выбрал пользователь
+  const { cells } = req.body;
   const bet = parseInt(req.body.bet, 10) || 1;
 
   if (isNaN(bet) || bet < 1 || bet > 1000) {
@@ -632,11 +653,24 @@ app.post('/api/minesweeper', async (req, res) => {
       return res.status(403).json({ error: 'Insufficient funds' });
     }
 
-    const hit = true;
-    const mines = [...cells];
-
+    // Create transaction for bet
     await createTransaction(req.user.id, 'game_loss', bet, 'minesweeper');
-    return res.json({ mines, hit, won: false, bet });
+
+    // Update user balance
+    const { error: updateError } = await supabaseAdmin
+      .from('users')
+      .update({ balance: balance - bet })
+      .eq('id', req.user.id);
+
+    if (updateError) throw updateError;
+
+    return res.json({ 
+      mines: cells,
+      hit: true,
+      won: false,
+      bet,
+      newBalance: balance - bet
+    });
   } catch (err) {
     console.error('Error in minesweeper game:', err);
     return res.status(500).json({ error: 'Error processing game' });

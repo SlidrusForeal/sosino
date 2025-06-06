@@ -12,6 +12,18 @@
   ],
   "routes": [
     {
+      "src": "/api/minesweeper",
+      "dest": "/server.js"
+    },
+    {
+      "src": "/api/roulette",
+      "dest": "/server.js"
+    },
+    {
+      "src": "/api/slots",
+      "dest": "/server.js"
+    },
+    {
       "src": "/api/(.*)",
       "dest": "/server.js"
     },
