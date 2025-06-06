@@ -162,12 +162,24 @@ app.use(passport.session());
 
 // --- Настройка Passport-Discord ---
 passport.serializeUser((user, done) => {
-  console.log('Serializing user:', user); // Debug log
-  done(null, user.discord_id);
+  console.log('Serializing user:', user);
+  try {
+    // Store only essential user data in session
+    const sessionUser = {
+      id: user.id,
+      discord_id: user.discord_id,
+      discord_username: user.discord_username
+    };
+    console.log('Serialized session data:', sessionUser);
+    done(null, user.discord_id);
+  } catch (error) {
+    console.error('Error in serializeUser:', error);
+    done(error);
+  }
 });
 
 passport.deserializeUser(async (discordId, done) => {
-  console.log('Deserializing user with discord_id:', discordId); // Debug log
+  console.log('Deserializing user with discord_id:', discordId);
   try {
     const { data: user, error } = await supabaseAdmin
       .from('users')
@@ -176,14 +188,19 @@ passport.deserializeUser(async (discordId, done) => {
       .single();
 
     if (error) {
-      console.error('Error deserializing user:', error); // Debug log
+      console.error('Error deserializing user:', error);
       return done(error);
     }
 
-    console.log('Deserialized user:', user); // Debug log
+    if (!user) {
+      console.error('User not found during deserialization');
+      return done(null, false);
+    }
+
+    console.log('Deserialized user:', user);
     done(null, user);
   } catch (error) {
-    console.error('Error in deserializeUser:', error); // Debug log
+    console.error('Error in deserializeUser:', error);
     done(error);
   }
 });
@@ -278,6 +295,7 @@ app.get('/auth/discord', (req, res, next) => {
 app.get('/auth/discord/callback', 
   (req, res, next) => {
     console.log('Discord callback received');
+    console.log('Session before auth:', req.session);
     
     // Set a timeout for the callback process
     const callbackTimeout = setTimeout(() => {
@@ -285,7 +303,7 @@ app.get('/auth/discord/callback',
         console.error('Discord callback timeout');
         res.redirect('/?error=callback_timeout');
       }
-    }, 10000); // 10 second timeout
+    }, 15000); // Increased timeout to 15 seconds
 
     passport.authenticate('discord', { 
       failureRedirect: '/?error=auth_failed',
@@ -299,12 +317,16 @@ app.get('/auth/discord/callback',
           return res.redirect('/?error=callback_failed');
         }
       }
+      console.log('Session after auth:', req.session);
       next();
     });
   },
   async (req, res) => {
     try {
       console.log('Processing Discord callback...');
+      console.log('Session in callback:', req.session);
+      console.log('User in callback:', req.user);
+
       if (!req.user) {
         console.error('No user in request after authentication');
         if (!res.headersSent) {
@@ -319,7 +341,7 @@ app.get('/auth/discord/callback',
           console.error('SPWorlds API timeout');
           res.redirect('/?error=spworlds_timeout');
         }
-      }, 5000); // 5 second timeout
+      }, 5000);
 
       // Get user info from SPWorlds API with timeout
       console.log('Fetching SPWorlds data for user:', req.user.discord_id);
@@ -329,7 +351,7 @@ app.get('/auth/discord/callback',
             'Authorization': `Bearer ${Buffer.from(`${process.env.SPWORLDS_CARD_ID}:${process.env.SPWORLDS_TOKEN}`).toString('base64')}`,
             'Content-Type': 'application/json'
           },
-          timeout: 5000 // 5 second timeout
+          timeout: 5000
         }),
         new Promise((_, reject) => 
           setTimeout(() => reject(new Error('SPWorlds API timeout')), 5000)
@@ -363,10 +385,22 @@ app.get('/auth/discord/callback',
         return;
       }
 
-      console.log('Authentication successful, redirecting to home...');
-      if (!res.headersSent) {
-        res.redirect('/');
-      }
+      // Save session before redirect
+      req.session.save((err) => {
+        if (err) {
+          console.error('Error saving session:', err);
+          if (!res.headersSent) {
+            return res.redirect('/?error=session_save_failed');
+          }
+          return;
+        }
+
+        console.log('Session saved successfully');
+        console.log('Authentication successful, redirecting to home...');
+        if (!res.headersSent) {
+          res.redirect('/');
+        }
+      });
     } catch (error) {
       console.error('Error in Discord callback:', error);
       if (!res.headersSent) {
