@@ -6,18 +6,6 @@
   <title>Казино SOSINO</title>
   <link rel="stylesheet" href="styles.css">
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <script>
-    // Предзагрузка критических ресурсов
-    const preloadLinks = [
-      { rel: 'preload', href: 'styles.css', as: 'style' },
-      { rel: 'preload', href: 'https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap', as: 'style' }
-    ];
-    preloadLinks.forEach(link => {
-      const linkEl = document.createElement('link');
-      Object.assign(linkEl, link);
-      document.head.appendChild(linkEl);
-    });
-  </script>
 </head>
 <body>
   <div class="container">
@@ -27,7 +15,7 @@
         <h1>🎰 SOSINO</h1>
       </div>
       <div id="user-info" class="user-info-container">
-        <a href="/auth/discord" class="btn btn-primary">Войти через Discord</a>
+        <!-- User info will be inserted here -->
       </div>
     </header>
 
@@ -91,32 +79,22 @@
   </div>
 
   <script>
-    // Оптимизированная загрузка данных пользователя
-    async function loadUserData() {
-      try {
-        const res = await fetch('/api/auth/user', {
-          headers: {
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache'
-          }
-        });
-        
+    // Get user info and balance
+    fetch('/api/auth/user')
+      .then(res => {
         if (!res.ok) {
           throw new Error('Unauthorized');
         }
-        
-        const user = await res.json();
+        return res.json();
+      })
+      .then(user => {
         const infoDiv = document.getElementById('user-info');
         const balanceDisplay = document.getElementById('balance-display');
 
         if (user.discord_username) {
-          // Используем шаблонные строки для оптимизации рендеринга
           infoDiv.innerHTML = `
             <div class="user-profile">
-              <img src="https://mc-heads.net/avatar/${user.minecraft_username}" 
-                   alt="Minecraft Avatar" 
-                   class="minecraft-avatar"
-                   loading="lazy">
+              <img src="https://mc-heads.net/avatar/${user.minecraft_username}" alt="Minecraft Avatar" class="minecraft-avatar">
               <div class="user-details">
                 <div class="discord-name">${user.discord_username}</div>
                 <div class="minecraft-name">${user.minecraft_username}</div>
@@ -127,19 +105,12 @@
         } else {
           infoDiv.innerHTML = '<a href="/auth/discord" class="btn btn-primary">Войти через Discord</a>';
         }
-      } catch (err) {
+      })
+      .catch(err => {
         console.error('Auth error:', err);
         const infoDiv = document.getElementById('user-info');
         infoDiv.innerHTML = '<a href="/auth/discord" class="btn btn-primary">Войти через Discord</a>';
-      }
-    }
-
-    // Загружаем данные пользователя после загрузки DOM
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', loadUserData);
-    } else {
-      loadUserData();
-    }
+      });
 
     // Handle deposit form
     document.getElementById('deposit-form').addEventListener('submit', async e => {
