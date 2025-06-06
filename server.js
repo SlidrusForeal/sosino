@@ -145,8 +145,8 @@ app.use(express.json());
 app.use(session({
   store: new SupabaseStore(),
   secret: process.env.SESSION_SECRET || 'your-secret-key',
-  resave: false,
-  saveUninitialized: false,
+  resave: true,
+  saveUninitialized: true,
   rolling: true,
   cookie: {
     secure: process.env.NODE_ENV === 'production',
@@ -179,6 +179,11 @@ app.use(passport.session());
 // --- Настройка Passport-Discord ---
 passport.serializeUser((user, done) => {
   console.log('Serializing user:', user); // Debug log
+  if (!user) {
+    console.error('No user to serialize');
+    return done(null, null);
+  }
+  
   // Store complete user data
   const userData = {
     id: user.id,
@@ -326,10 +331,20 @@ app.get('/auth/discord/callback',
         console.error('Error updating user:', error);
       }
 
+      // Update the session with the latest user data
+      req.session.passport = {
+        user: {
+          ...req.user,
+          minecraft_username: username,
+          minecraft_uuid: uuid
+        }
+      };
+
       // Save the session explicitly
       req.session.save((err) => {
         if (err) {
           console.error('Error saving session:', err);
+          return res.redirect('/');
         }
         console.log('Auth callback - Session after:', req.session); // Debug log
         console.log('Auth callback - User after:', req.user); // Debug log
