@@ -108,7 +108,9 @@
     // Функция для проверки авторизации
     async function checkAuth() {
       try {
-        const response = await fetch('/api/auth/user');
+        const response = await fetch('/api/auth/user', {
+          credentials: 'include'
+        });
         if (response.ok) {
           userData = await response.json();
           userBalance = userData.balance;
@@ -184,6 +186,7 @@
           headers: {
             'Content-Type': 'application/json'
           },
+          credentials: 'include',
           body: JSON.stringify({
             bet: currentBet
           })

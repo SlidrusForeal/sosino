@@ -107,7 +107,9 @@
     // Функция для проверки авторизации
     async function checkAuth() {
       try {
-        const response = await fetch('/api/auth/user');
+        const response = await fetch('/api/auth/user', {
+          credentials: 'include'
+        });
         if (response.ok) {
           userData = await response.json();
           userBalance = userData.balance;
@@ -186,6 +188,9 @@
       }
 
       isPlaying = true;
+      document.getElementById('game-status').textContent = 'Игра началась!';
+      document.getElementById('game-form').style.display = 'none';
+      document.getElementById('game-board').style.display = 'grid';
 
       try {
         const response = await fetch('/api/minesweeper', {
@@ -193,8 +198,8 @@
           headers: {
             'Content-Type': 'application/json'
           },
+          credentials: 'include',
           body: JSON.stringify({
-            cells: selectedCells,
             bet: currentBet
           })
         });
@@ -204,34 +209,98 @@
         }
 
         const result = await response.json();
+        gameId = result.gameId;
+        mines = result.mines;
+        multiplier = result.multiplier;
         
         // Обновляем баланс
         updateBalance(result.newBalance);
 
-        // Показываем результат
-        const resultDiv = document.getElementById('game-status');
-        resultDiv.innerHTML = `
-          <div class="result ${result.won ? 'win' : 'lose'}">
-            <h3>${result.won ? 'Победа!' : 'Проигрыш'}</h3>
-            <p>${result.won ? 'Выигрыш: ' + (currentBet * result.multiplier) : 'Потеряно: ' + currentBet} AR</p>
-          </div>
-        `;
-
-        // Показываем мины
-        result.mines.forEach(mine => {
-          document.getElementById(`cell-${mine}`).classList.add('mine');
-        });
-
-        // Сбрасываем игру через 2 секунды
-        setTimeout(() => {
-          resetGame();
-        }, 2000);
+        // Показываем множитель
+        document.getElementById('multiplier').textContent = `Множитель: ${multiplier}x`;
       } catch (error) {
         console.error('Error playing game:', error);
         alert('Произошла ошибка при игре');
-      } finally {
+        resetGame();
+      }
+    }
+
+    // Функция для проверки ячейки
+    async function checkCell(index) {
+      if (!isPlaying || revealedCells.has(index)) return;
+
+      try {
+        const response = await fetch('/api/minesweeper/check', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          credentials: 'include',
+          body: JSON.stringify({
+            gameId,
+            cell: index
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error('Check error');
+        }
+
+        const result = await response.json();
+        
+        if (result.hit) {
+          // Игрок попал на мину
+          document.getElementById(`cell-${index}`).classList.add('mine');
+          document.getElementById('game-status').textContent = 'Игра окончена!';
+          isPlaying = false;
+          setTimeout(resetGame, 2000);
+        } else {
+          // Игрок выбрал безопасную ячейку
+          revealedCells.add(index);
+          document.getElementById(`cell-${index}`).classList.add('safe');
+          
+          // Обновляем множитель
+          multiplier = result.multiplier;
+          document.getElementById('multiplier').textContent = `Множитель: ${multiplier}x`;
+        }
+      } catch (error) {
+        console.error('Error checking cell:', error);
+        alert('Произошла ошибка при проверке ячейки');
+      }
+    }
+
+    // Функция для вывода выигрыша
+    async function cashout() {
+      if (!isPlaying) return;
+
+      try {
+        const response = await fetch('/api/minesweeper/cashout', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          credentials: 'include',
+          body: JSON.stringify({
+            gameId
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error('Cashout error');
+        }
+
+        const result = await response.json();
+        
+        // Обновляем баланс
+        updateBalance(result.newBalance);
+
+        // Показываем выигрыш
+        document.getElementById('game-status').textContent = `Выигрыш: ${result.winAmount} AR`;
         isPlaying = false;
-        selectedCells = [];
+        setTimeout(resetGame, 2000);
+      } catch (error) {
+        console.error('Error cashing out:', error);
+        alert('Произошла ошибка при выводе выигрыша');
       }
     }
 

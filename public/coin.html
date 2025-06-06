@@ -64,6 +64,8 @@
     let currentBet = 1;
     let userBalance = 0;
     let userData = null;
+    let selectedSide = null;
+    let isSpinning = false;
 
     // Функция для обновления UI в зависимости от состояния аутентификации
     function updateUI(user) {
@@ -103,16 +105,24 @@
     // Функция для проверки авторизации
     async function checkAuth() {
       try {
-        const response = await fetch('/api/auth/user');
+        const response = await fetch('/api/auth/user', {
+          credentials: 'include'
+        });
         if (response.ok) {
           userData = await response.json();
           userBalance = userData.balance;
           document.getElementById('balance').textContent = userData.balance;
-          document.getElementById('gameSection').style.display = 'block';
-          document.getElementById('authMessage').style.display = 'none';
+          document.getElementById('game-form').style.display = 'block';
         } else {
-          document.getElementById('gameSection').style.display = 'none';
-          document.getElementById('authMessage').style.display = 'block';
+          document.getElementById('game-form').style.display = 'none';
+          document.getElementById('user-info').innerHTML = `
+            <div class="auth-container">
+              <a href="/auth/discord" class="btn btn-primary">
+                <img src="https://assets-global.website-files.com/6257adef93867e50d84d30e2/636e0a6a49cf127bf92de1e2_icon_clyde_white_RGB.png" alt="Discord" class="discord-icon">
+                Войти через Discord
+              </a>
+            </div>
+          `;
         }
       } catch (error) {
         console.error('Error checking auth:', error);
@@ -132,26 +142,38 @@
     }
 
     function selectChoice(choice) {
-      // Implementation of selectChoice function
+      selectedSide = choice;
+      document.querySelectorAll('.btn-choice').forEach(btn => {
+        btn.classList.remove('selected');
+      });
+      document.querySelector(`.btn-choice[onclick="selectChoice('${choice}')"]`).classList.add('selected');
     }
 
     // Функция для игры
-    async function playGame(choice) {
+    async function playGame() {
+      if (isSpinning) return;
+      if (!selectedSide) {
+        alert('Выберите сторону монеты!');
+        return;
+      }
       if (currentBet > userBalance) {
         alert('Недостаточно средств!');
         return;
       }
 
+      isSpinning = true;
+      animateCoin();
+
       try {
-        const response = await fetch('/api/play/coin', {
+        const response = await fetch('/api/coin', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
           },
+          credentials: 'include',
           body: JSON.stringify({
-            choice,
-            bet: currentBet,
-            userId: userData.id
+            side: selectedSide,
+            bet: currentBet
           })
         });
 
@@ -169,13 +191,21 @@
         resultDiv.innerHTML = `
           <div class="result ${result.won ? 'win' : 'lose'}">
             <h3>${result.won ? 'Победа!' : 'Проигрыш'}</h3>
-            <p>Результат: ${result.result}</p>
+            <p>Выпало: ${result.result === 'heads' ? 'Орёл' : 'Решка'}</p>
             <p>${result.won ? 'Выигрыш: ' + (currentBet * 2) : 'Потеряно: ' + currentBet} AR</p>
           </div>
         `;
+
+        // Сбрасываем выбор стороны
+        selectedSide = null;
+        document.querySelectorAll('.btn-choice').forEach(btn => {
+          btn.classList.remove('selected');
+        });
       } catch (error) {
         console.error('Error playing game:', error);
         alert('Произошла ошибка при игре');
+      } finally {
+        isSpinning = false;
       }
     }
 
