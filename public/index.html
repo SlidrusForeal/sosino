@@ -79,62 +79,59 @@
   </div>
 
   <script>
-    // Функция для обновления UI в зависимости от состояния аутентификации
-    function updateUI(user) {
-      const infoDiv = document.getElementById('user-info');
-      const balanceDisplay = document.getElementById('balance-display');
-      const balanceSection = document.querySelector('.balance-section');
-      const gamesSection = document.querySelector('.games-section');
-
-      if (user && user.discord_username) {
-        // Пользователь авторизован
-        infoDiv.innerHTML = `
-          <div class="user-profile">
-            <img src="https://mc-heads.net/avatar/${user.minecraft_username}" alt="Minecraft Avatar" class="minecraft-avatar">
-            <div class="user-details">
-              <div class="discord-name">${user.discord_username}</div>
-              <div class="minecraft-name">${user.minecraft_username}</div>
-            </div>
-          </div>
-        `;
-        balanceDisplay.textContent = user.balance;
-        balanceSection.style.display = 'block';
-        gamesSection.style.display = 'block';
-      } else {
-        // Пользователь не авторизован
-        infoDiv.innerHTML = `
-          <div class="auth-container">
-            <a href="/auth/discord" class="btn btn-primary">
-              <img src="https://assets-global.website-files.com/6257adef93867e50d84d30e2/636e0a6a49cf127bf92de1e2_icon_clyde_white_RGB.png" alt="Discord" class="discord-icon">
-              Войти через Discord
-            </a>
-          </div>
-        `;
-        balanceSection.style.display = 'none';
-        gamesSection.style.display = 'none';
-      }
-    }
-
-    // Функция для проверки аутентификации
+    // Функция для проверки авторизации
     async function checkAuth() {
       try {
-        const res = await fetch('/api/auth/user');
-        if (!res.ok) {
-          throw new Error('Unauthorized');
+        const response = await fetch('/api/auth/user');
+        if (response.ok) {
+          const userData = await response.json();
+          document.getElementById('userInfo').innerHTML = `
+            <div class="user-info">
+              <img src="https://cdn.discordapp.com/avatars/${userData.discord_id}/${userData.avatar}.png" alt="Avatar" class="avatar">
+              <div class="user-details">
+                <span class="username">${userData.discord_username}</span>
+                <span class="minecraft-name">${userData.minecraft_username}</span>
+              </div>
+              <div class="balance">
+                <span class="balance-amount">${userData.balance}</span>
+                <span class="balance-currency">AR</span>
+              </div>
+              <button onclick="logout()" class="logout-btn">Выйти</button>
+            </div>
+          `;
+          document.getElementById('authButtons').style.display = 'none';
+          document.getElementById('userInfo').style.display = 'block';
+          document.getElementById('balanceSection').style.display = 'block';
+          updateBalance(userData.balance);
+        } else {
+          document.getElementById('authButtons').style.display = 'flex';
+          document.getElementById('userInfo').style.display = 'none';
+          document.getElementById('balanceSection').style.display = 'none';
         }
-        const user = await res.json();
-        updateUI(user);
-      } catch (err) {
-        console.error('Auth error:', err);
-        updateUI(null);
+      } catch (error) {
+        console.error('Error checking auth:', error);
       }
     }
 
-    // Проверяем аутентификацию при загрузке страницы
-    checkAuth();
+    // Функция для выхода
+    async function logout() {
+      try {
+        window.location.href = '/auth/logout';
+      } catch (error) {
+        console.error('Error logging out:', error);
+      }
+    }
 
-    // Периодически проверяем состояние аутентификации
-    setInterval(checkAuth, 30000); // каждые 30 секунд
+    // Функция для обновления баланса
+    async function updateBalance(newBalance) {
+      const balanceElement = document.querySelector('.balance-amount');
+      if (balanceElement) {
+        balanceElement.textContent = newBalance;
+      }
+    }
+
+    // Проверяем авторизацию при загрузке страницы
+    document.addEventListener('DOMContentLoaded', checkAuth);
 
     // Обработчик для формы депозита
     const depositForm = document.getElementById('deposit-form');

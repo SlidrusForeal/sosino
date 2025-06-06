@@ -60,9 +60,10 @@
   </div>
 
   <script>
-    let selectedCells = [];
-    let gameStarted = false;
+    let currentBet = 1;
     let userBalance = 0;
+    let isPlaying = false;
+    let selectedCells = [];
 
     // Функция для обновления UI в зависимости от состояния аутентификации
     function updateUI(user) {
@@ -102,22 +103,32 @@
     // Функция для проверки аутентификации
     async function checkAuth() {
       try {
-        const res = await fetch('/api/auth/user');
-        if (!res.ok) {
-          throw new Error('Unauthorized');
+        const response = await fetch('/api/auth/user');
+        if (response.ok) {
+          const userData = await response.json();
+          userBalance = userData.balance;
+          document.getElementById('balance').textContent = userData.balance;
+          document.getElementById('gameSection').style.display = 'block';
+          document.getElementById('authMessage').style.display = 'none';
+        } else {
+          document.getElementById('gameSection').style.display = 'none';
+          document.getElementById('authMessage').style.display = 'block';
         }
-        const user = await res.json();
-        updateUI(user);
-      } catch (err) {
-        console.error('Auth error:', err);
-        updateUI(null);
+      } catch (error) {
+        console.error('Error checking auth:', error);
       }
     }
 
+    // Функция для обновления баланса
+    function updateBalance(newBalance) {
+      userBalance = newBalance;
+      document.getElementById('balance').textContent = newBalance;
+    }
+
+    // Функция для изменения ставки
     function adjustBet(amount) {
-      const betInput = document.getElementById('bet');
-      const newValue = Math.max(1, Math.min(userBalance, parseInt(betInput.value) + amount));
-      betInput.value = newValue;
+      currentBet = Math.max(1, Math.min(1000, currentBet + amount));
+      document.getElementById('bet').value = currentBet;
     }
 
     // Добавляем валидацию ввода
@@ -138,110 +149,85 @@
         const cell = document.createElement('div');
         cell.className = 'mine-cell';
         cell.dataset.index = i;
-        cell.addEventListener('click', () => selectCell(cell));
+        cell.addEventListener('click', () => selectCell(i));
         grid.appendChild(cell);
       }
     }
 
+    // Функция для выбора ячейки
     function selectCell(cell) {
-      if (!gameStarted) return;
+      if (isPlaying || selectedCells.includes(cell)) return;
       
-      const index = parseInt(cell.dataset.index);
-      if (selectedCells.includes(index)) {
-        selectedCells = selectedCells.filter(i => i !== index);
-        cell.classList.remove('selected');
-      } else if (selectedCells.length < 3) {
-        selectedCells.push(index);
-        cell.classList.add('selected');
+      selectedCells.push(cell);
+      document.getElementById(`cell-${cell}`).classList.add('selected');
+      
+      if (selectedCells.length === 3) {
+        playGame();
       }
     }
 
-    function revealMines(mines) {
-      const cells = document.querySelectorAll('.mine-cell');
-      cells.forEach(cell => {
-        const index = parseInt(cell.dataset.index);
-        if (mines.includes(index)) {
-          cell.classList.add('mine');
-          cell.textContent = '💣';
-        } else if (selectedCells.includes(index)) {
-          cell.classList.add('safe');
-          cell.textContent = '✅';
-        }
-      });
-    }
-
-    document.getElementById('game-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      
-      const bet = parseInt(document.getElementById('bet').value);
-      const statusEl = document.getElementById('game-status');
-      const submitBtn = e.target.querySelector('button[type="submit"]');
-
-      if (bet < 1 || bet > userBalance) {
-        statusEl.className = 'result lose';
-        statusEl.textContent = `Ставка должна быть от 1 до ${userBalance} руды`;
+    // Функция для игры
+    async function playGame() {
+      if (isPlaying) return;
+      if (currentBet > userBalance) {
+        alert('Недостаточно средств!');
         return;
       }
 
-      if (!gameStarted) {
-        // Начало игры
-        gameStarted = true;
-        createGrid();
-        submitBtn.textContent = 'Проверить';
-        statusEl.className = 'result';
-        statusEl.textContent = 'Выберите 3 ячейки';
-        return;
-      }
-
-      if (selectedCells.length !== 3) {
-        statusEl.className = 'result lose';
-        statusEl.textContent = 'Выберите ровно 3 ячейки';
-        return;
-      }
+      isPlaying = true;
 
       try {
-        submitBtn.disabled = true;
-        submitBtn.textContent = 'Проверяем...';
-        statusEl.className = 'result';
-        statusEl.textContent = 'Проверяем ячейки...';
-
-        const res = await fetch('/api/minesweeper', {
+        const response = await fetch('/api/minesweeper', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
             cells: selectedCells,
-            bet: bet
+            bet: currentBet
           })
         });
 
-        const data = await res.json();
-        
-        if (res.ok) {
-          // Анимация раскрытия мин
-          revealMines(data.mines);
-          
-          statusEl.className = data.won ? 'result win' : 'result lose';
-          statusEl.textContent = data.won 
-            ? `Поздравляем! Вы нашли все безопасные ячейки. Выигрыш ${data.bet * 2} руды!`
-            : `Увы, вы попали на мину. Потеряно ${data.bet} руды`;
-          
-          // Обновляем баланс после игры
-          userBalance = data.newBalance;
-          
-          // Сброс игры
-          gameStarted = false;
-          submitBtn.textContent = 'Начать игру';
-        } else {
-          statusEl.className = 'result lose';
-          statusEl.textContent = data.error || 'Ошибка при игре';
+        if (!response.ok) {
+          throw new Error('Game error');
         }
-      } catch (err) {
-        statusEl.className = 'result lose';
-        statusEl.textContent = 'Ошибка: ' + err.message;
+
+        const result = await response.json();
+        
+        // Обновляем баланс
+        updateBalance(result.newBalance || userBalance - currentBet);
+
+        // Показываем результат
+        const resultDiv = document.getElementById('result');
+        resultDiv.innerHTML = `
+          <div class="result ${result.won ? 'win' : 'lose'}">
+            <h3>${result.won ? 'Победа!' : 'Проигрыш'}</h3>
+            <p>${result.won ? 'Выигрыш: ' + (currentBet * result.multiplier) : 'Потеряно: ' + currentBet} AR</p>
+          </div>
+        `;
+
+        // Показываем мины
+        result.mines.forEach(mine => {
+          document.getElementById(`cell-${mine}`).classList.add('mine');
+        });
+      } catch (error) {
+        console.error('Error playing game:', error);
+        alert('Произошла ошибка при игре');
       } finally {
-        submitBtn.disabled = false;
+        isPlaying = false;
+        selectedCells = [];
       }
-    });
+    }
+
+    // Функция для сброса игры
+    function resetGame() {
+      selectedCells = [];
+      isPlaying = false;
+      document.querySelectorAll('.cell').forEach(cell => {
+        cell.classList.remove('selected', 'mine');
+      });
+      document.getElementById('result').innerHTML = '';
+    }
 
     // Проверяем аутентификацию при загрузке страницы
     checkAuth();

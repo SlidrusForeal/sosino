@@ -69,6 +69,8 @@
   <script>
     let selectedColor = null;
     let userBalance = 0;
+    let currentBet = 1;
+    let isSpinning = false;
 
     // Функция для обновления UI в зависимости от состояния аутентификации
     function updateUI(user) {
@@ -108,22 +110,32 @@
     // Функция для проверки аутентификации
     async function checkAuth() {
       try {
-        const res = await fetch('/api/auth/user');
-        if (!res.ok) {
-          throw new Error('Unauthorized');
+        const response = await fetch('/api/auth/user');
+        if (response.ok) {
+          const userData = await response.json();
+          userBalance = userData.balance;
+          document.getElementById('balance').textContent = userData.balance;
+          document.getElementById('gameSection').style.display = 'block';
+          document.getElementById('authMessage').style.display = 'none';
+        } else {
+          document.getElementById('gameSection').style.display = 'none';
+          document.getElementById('authMessage').style.display = 'block';
         }
-        const user = await res.json();
-        updateUI(user);
-      } catch (err) {
-        console.error('Auth error:', err);
-        updateUI(null);
+      } catch (error) {
+        console.error('Error checking auth:', error);
       }
     }
 
+    // Функция для обновления баланса
+    function updateBalance(newBalance) {
+      userBalance = newBalance;
+      document.getElementById('balance').textContent = newBalance;
+    }
+
+    // Функция для изменения ставки
     function adjustBet(amount) {
-      const betInput = document.getElementById('bet');
-      const newValue = Math.max(1, Math.min(userBalance, parseInt(betInput.value) + amount));
-      betInput.value = newValue;
+      currentBet = Math.max(1, Math.min(1000, currentBet + amount));
+      document.getElementById('bet').value = currentBet;
     }
 
     // Добавляем валидацию ввода
@@ -144,96 +156,65 @@
       event.target.classList.add('selected');
     }
 
-    function spinWheel() {
-      return new Promise(resolve => {
-        const wheel = document.getElementById('wheel');
-        const ball = document.getElementById('ball');
-        let rotations = 0;
-        const maxRotations = 5;
-        const duration = 3000;
-        const startTime = Date.now();
-
-        function animate() {
-          const elapsed = Date.now() - startTime;
-          const progress = Math.min(elapsed / duration, 1);
-          
-          // Замедление вращения
-          const easeOut = 1 - Math.pow(1 - progress, 3);
-          const currentRotation = easeOut * 360 * maxRotations;
-          
-          wheel.style.transform = `rotate(${currentRotation}deg)`;
-          ball.style.transform = `rotate(${-currentRotation * 2}deg)`;
-
-          if (progress < 1) {
-            requestAnimationFrame(animate);
-          } else {
-            resolve();
-          }
-        }
-
-        animate();
-      });
+    // Функция для анимации рулетки
+    function animateRoulette() {
+      const wheel = document.getElementById('wheel');
+      let rotation = 0;
+      const interval = setInterval(() => {
+        rotation += 10;
+        wheel.style.transform = `rotate(${rotation}deg)`;
+      }, 50);
+      setTimeout(() => clearInterval(interval), 2000);
     }
 
-    document.getElementById('game-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      
-      if (!selectedColor) {
-        const statusEl = document.getElementById('game-status');
-        statusEl.className = 'result lose';
-        statusEl.textContent = 'Выберите цвет';
+    // Функция для игры
+    async function playGame(color) {
+      if (isSpinning) return;
+      if (currentBet > userBalance) {
+        alert('Недостаточно средств!');
         return;
       }
 
-      const bet = parseInt(document.getElementById('bet').value);
-      const statusEl = document.getElementById('game-status');
-      const submitBtn = e.target.querySelector('button[type="submit"]');
-
-      if (bet < 1 || bet > userBalance) {
-        statusEl.className = 'result lose';
-        statusEl.textContent = `Ставка должна быть от 1 до ${userBalance} руды`;
-        return;
-      }
+      isSpinning = true;
+      animateRoulette();
 
       try {
-        submitBtn.disabled = true;
-        submitBtn.textContent = 'Крутим...';
-        statusEl.className = 'result';
-        statusEl.textContent = 'Крутим рулетку...';
-
-        // Анимация вращения
-        await spinWheel();
-
-        const res = await fetch('/api/roulette', {
+        const response = await fetch('/api/roulette', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            color: selectedColor,
-            bet: bet
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            color,
+            bet: currentBet
           })
         });
 
-        const data = await res.json();
-        
-        if (res.ok) {
-          statusEl.className = data.won ? 'result win' : 'result lose';
-          statusEl.textContent = data.won 
-            ? `Поздравляем! Выпало ${data.colorResult === 'red' ? 'красное' : 'чёрное'}. Выигрыш ${data.bet * 2} руды!`
-            : `Увы, выпало ${data.colorResult === 'red' ? 'красное' : 'чёрное'}. Потеряно ${data.bet} руды`;
-          // Обновляем баланс после игры
-          userBalance = data.newBalance;
-        } else {
-          statusEl.className = 'result lose';
-          statusEl.textContent = data.error || 'Ошибка при игре';
+        if (!response.ok) {
+          throw new Error('Game error');
         }
-      } catch (err) {
-        statusEl.className = 'result lose';
-        statusEl.textContent = 'Ошибка: ' + err.message;
+
+        const result = await response.json();
+        
+        // Обновляем баланс
+        updateBalance(result.newBalance || userBalance - currentBet);
+
+        // Показываем результат
+        const resultDiv = document.getElementById('game-status');
+        resultDiv.innerHTML = `
+          <div class="result ${result.won ? 'win' : 'lose'}">
+            <h3>${result.won ? 'Победа!' : 'Проигрыш'}</h3>
+            <p>Выпало: ${result.colorResult === 'red' ? 'Красное' : 'Черное'} ${result.result}</p>
+            <p>${result.won ? 'Выигрыш: ' + (currentBet * 2) : 'Потеряно: ' + currentBet} AR</p>
+          </div>
+        `;
+      } catch (error) {
+        console.error('Error playing game:', error);
+        alert('Произошла ошибка при игре');
       } finally {
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Крутить';
+        isSpinning = false;
       }
-    });
+    }
 
     // Проверяем аутентификацию при загрузке страницы
     checkAuth();
