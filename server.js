@@ -614,12 +614,28 @@ app.post('/api/play/coin', async (req, res) => {
       return res.status(403).json({ error: 'Insufficient funds' });
     }
 
-    // Пример «подставного» варианта: игрок всегда проигрывает, но «почти» было противоположное
-    const nearMiss = (choice === 'heads' ? 'heads' : 'tails');
-    const finalResult = (choice === 'heads' ? 'tails' : 'heads');
-
+    // Генерируем случайный результат (всегда противоположный выбору игрока)
+    const coinResult = choice === 'heads' ? 'tails' : 'heads';
+    
+    // Генерируем случайное количество переворотов (от 3 до 6)
+    const flips = Math.floor(Math.random() * 4) + 3;
+    
+    // Генерируем промежуточные результаты для анимации
+    const flipSequence = Array.from({ length: flips }, () => 
+      Math.random() > 0.5 ? 'heads' : 'tails'
+    );
+    
     await createTransaction(req.user.id, 'game_loss', bet, 'coin_guess');
-    return res.json({ result: finalResult, near: nearMiss, won: false, bet });
+    return res.json({
+      won: false,
+      result: coinResult,
+      flipSequence: flipSequence,
+      animationDuration: 2000, // 2 секунды на анимацию
+      nearMiss: true,
+      message: "Так близко! Попробуйте еще раз!",
+      newBalance: balance - bet,
+      bet
+    });
   } catch (err) {
     console.error('Error in coin game:', err);
     return res.status(500).json({ error: 'Error processing game' });
@@ -654,7 +670,7 @@ app.post('/api/slots', async (req, res) => {
 
     if (updateError) throw updateError;
 
-    const reels = ['🍒', '🍋', '��', '🔔', '💎'];
+    const reels = ['🍒', '🍋', '🍇', '🔔', '💎', '7️⃣', '🍊', '🍉'];
     let slotResult;
     do {
       // Создаем массив из 3 случайных символов
@@ -672,11 +688,18 @@ app.post('/api/slots', async (req, res) => {
       if (uniqueSymbols.size >= 2) break;
     } while (true);
 
-    return res.json({ 
-      result: slotResult,
+    // Генерируем случайные задержки для каждого барабана
+    const reelDelays = slotResult.map(() => Math.floor(Math.random() * 1000) + 1000); // от 1 до 2 секунд
+
+    return res.status(200).json({
       won: false,
-      bet,
-      newBalance: balance - bet
+      result: slotResult,
+      reelDelays: reelDelays,
+      animationDuration: 3000, // 3 секунды на полную анимацию
+      nearMiss: true,
+      message: "Так близко! Попробуйте еще раз!",
+      newBalance: balance - bet,
+      bet
     });
   } catch (err) {
     console.error('Error in slots game:', err);
@@ -713,14 +736,24 @@ app.post('/api/roulette', async (req, res) => {
 
     if (updateError) throw updateError;
 
+    // Генерируем случайное число от 0 до 36
     const rouletteResult = Math.floor(Math.random() * 37);
+    // Определяем цвет результата
     const resultColor = rouletteResult === 0 ? 'green' : (rouletteResult % 2 === 0 ? 'black' : 'red');
-    return res.json({ 
+    // Вычисляем позицию на колесе (в градусах)
+    // Каждое число занимает примерно 9.73 градуса (360/37)
+    const wheelPosition = (rouletteResult * 9.73) % 360;
+    
+    return res.status(200).json({
+      won: false,
       result: rouletteResult,
       colorResult: resultColor,
-      won: false,
-      bet,
-      newBalance: balance - bet
+      wheelPosition: wheelPosition,
+      animationDuration: 5000, // 5 секунд на анимацию
+      nearMiss: true,
+      message: `Шарик остановился на ${rouletteResult}!`,
+      newBalance,
+      bet
     });
   } catch (err) {
     console.error('Error in roulette game:', err);
@@ -757,12 +790,34 @@ app.post('/api/minesweeper', async (req, res) => {
 
     if (updateError) throw updateError;
 
-    return res.json({ 
-      mines: cells,
-      hit: true,
+    if (!cells || !Array.isArray(cells)) {
+      return res.status(400).json({ error: 'Invalid cells selection' });
+    }
+
+    // Создаем игровое поле 5x5
+    const boardSize = 5;
+    const totalCells = boardSize * boardSize;
+    
+    // Генерируем случайные мины (3 мины)
+    const mineCount = 3;
+    const mines = new Set();
+    while (mines.size < mineCount) {
+      const minePosition = Math.floor(Math.random() * totalCells);
+      const [x, y] = [Math.floor(minePosition / boardSize), minePosition % boardSize];
+      mines.add(`${x},${y}`);
+    }
+
+    // Проверяем, не попал ли игрок на мину
+    const hitMine = cells.some(cell => mines.has(cell));
+
+    return res.status(200).json({
       won: false,
-      bet,
-      newBalance: balance - bet
+      mines: Array.from(mines),
+      hit: hitMine,
+      boardSize,
+      message: hitMine ? "Бум! Вы попали на мину!" : "Так близко! Попробуйте еще раз!",
+      newBalance,
+      bet
     });
   } catch (err) {
     console.error('Error in minesweeper game:', err);
@@ -1078,11 +1133,24 @@ app.post('/api/games/:game', async (req, res) => {
     switch (game) {
       case 'coin':
         const { choice } = req.body;
+        // Генерируем случайный результат (всегда противоположный выбору игрока)
+        const coinResult = choice === 'heads' ? 'tails' : 'heads';
+        
+        // Генерируем случайное количество переворотов (от 3 до 6)
+        const flips = Math.floor(Math.random() * 4) + 3;
+        
+        // Генерируем промежуточные результаты для анимации
+        const flipSequence = Array.from({ length: flips }, () => 
+          Math.random() > 0.5 ? 'heads' : 'tails'
+        );
+        
         return res.status(200).json({
           won: false,
-          result: choice === 'heads' ? 'tails' : 'heads',
+          result: coinResult,
+          flipSequence: flipSequence,
+          animationDuration: 2000, // 2 секунды на анимацию
           nearMiss: true,
-          nearResult: choice,
+          message: "Так близко! Попробуйте еще раз!",
           newBalance,
           bet
         });
@@ -1109,9 +1177,14 @@ app.post('/api/games/:game', async (req, res) => {
           if (uniqueSymbols.size >= 2) break;
         } while (true);
 
+        // Генерируем случайные задержки для каждого барабана
+        const reelDelays = slotResult.map(() => Math.floor(Math.random() * 1000) + 1000); // от 1 до 2 секунд
+
         return res.status(200).json({
           won: false,
           result: slotResult,
+          reelDelays: reelDelays,
+          animationDuration: 3000, // 3 секунды на полную анимацию
           nearMiss: true,
           message: "Так близко! Попробуйте еще раз!",
           newBalance,
@@ -1120,14 +1193,22 @@ app.post('/api/games/:game', async (req, res) => {
 
       case 'roulette':
         const { color } = req.body;
+        // Генерируем случайное число от 0 до 36
         const rouletteResult = Math.floor(Math.random() * 37);
+        // Определяем цвет результата
         const resultColor = rouletteResult === 0 ? 'green' : (rouletteResult % 2 === 0 ? 'black' : 'red');
+        // Вычисляем позицию на колесе (в градусах)
+        // Каждое число занимает примерно 9.73 градуса (360/37)
+        const wheelPosition = (rouletteResult * 9.73) % 360;
+        
         return res.status(200).json({
           won: false,
-          colorResult: resultColor,
           result: rouletteResult,
+          colorResult: resultColor,
+          wheelPosition: wheelPosition,
+          animationDuration: 5000, // 5 секунд на анимацию
           nearMiss: true,
-          message: `Шарик остановился на ${rouletteResult}! Почти попал на ${color}!`,
+          message: `Шарик остановился на ${rouletteResult}!`,
           newBalance,
           bet
         });
@@ -1137,16 +1218,29 @@ app.post('/api/games/:game', async (req, res) => {
         if (!cells || !Array.isArray(cells)) {
           return res.status(400).json({ error: 'Invalid cells selection' });
         }
-        const adjacentCells = cells.map(cell => {
-          const [x, y] = cell.split(',').map(Number);
-          return [`${x+1},${y}`, `${x-1},${y}`, `${x},${y+1}`, `${x},${y-1}`];
-        }).flat();
-        const mines = adjacentCells.slice(0, 3);
+
+        // Создаем игровое поле 5x5
+        const boardSize = 5;
+        const totalCells = boardSize * boardSize;
+        
+        // Генерируем случайные мины (3 мины)
+        const mineCount = 3;
+        const mines = new Set();
+        while (mines.size < mineCount) {
+          const minePosition = Math.floor(Math.random() * totalCells);
+          const [x, y] = [Math.floor(minePosition / boardSize), minePosition % boardSize];
+          mines.add(`${x},${y}`);
+        }
+
+        // Проверяем, не попал ли игрок на мину
+        const hitMine = cells.some(cell => mines.has(cell));
+
         return res.status(200).json({
           won: false,
-          mines: mines,
-          nearMiss: true,
-          message: "Ой! Мины были совсем рядом!",
+          mines: Array.from(mines),
+          hit: hitMine,
+          boardSize,
+          message: hitMine ? "Бум! Вы попали на мину!" : "Так близко! Попробуйте еще раз!",
           newBalance,
           bet
         });
