@@ -32,6 +32,37 @@ const redis = new Redis({
   retryStrategy: (times) => times > 3 ? null : Math.min(times * 1000, 3000)
 });
 
+// Добавляем константы для кэширования
+const CACHE_CONFIG = {
+  USER_TTL: 1800, // 30 минут вместо 1 часа
+  MAX_CACHE_SIZE: 1024 * 50, // 50KB максимальный размер кэша на пользователя
+  COMPRESS_THRESHOLD: 1024 // Сжимать данные больше 1KB
+};
+
+// Функция для сжатия данных перед кэшированием
+async function compressData(data) {
+  if (JSON.stringify(data).length > CACHE_CONFIG.COMPRESS_THRESHOLD) {
+    const compressed = await compression.gzip(JSON.stringify(data));
+    return Buffer.from(compressed).toString('base64');
+  }
+  return JSON.stringify(data);
+}
+
+// Функция для распаковки данных
+function decompressData(data) {
+  try {
+    if (data.startsWith('gzip:')) {
+      const compressed = Buffer.from(data.slice(5), 'base64');
+      const decompressed = compression.gunzipSync(compressed);
+      return JSON.parse(decompressed.toString());
+    }
+    return JSON.parse(data);
+  } catch (err) {
+    console.error('Error decompressing data:', err);
+    return null;
+  }
+}
+
 // --- Пользовательский RedisSessionStore ---
 class RedisSessionStore extends EventEmitter {
   async get(sid) {
@@ -130,10 +161,13 @@ passport.deserializeUser(async (discordId, done) => {
     // Проверяем кэш Redis
     const cachedUser = await redis.get(`user:${discordId}`);
     if (cachedUser) {
-      return done(null, JSON.parse(cachedUser));
+      const userData = decompressData(cachedUser);
+      if (userData) {
+        return done(null, userData);
+      }
     }
 
-    // Если нет в кэше, получаем из БД
+    // Если нет в кэше или ошибка распаковки, получаем из БД
     const { data: user, error } = await supabaseAdmin
       .from('users')
       .select('*')
@@ -142,8 +176,18 @@ passport.deserializeUser(async (discordId, done) => {
 
     if (error || !user) return done(error || new Error('User not found'));
 
-    // Кэшируем пользователя на 1 час
-    await redis.set(`user:${discordId}`, JSON.stringify(user), { ex: 3600 });
+    // Кэшируем только необходимые поля
+    const cacheData = {
+      id: user.id,
+      discord_id: user.discord_id,
+      discord_username: user.discord_username,
+      minecraft_username: user.minecraft_username,
+      balance: user.balance
+    };
+
+    // Сжимаем и кэшируем данные
+    const compressedData = await compressData(cacheData);
+    await redis.set(`user:${discordId}`, compressedData, { ex: CACHE_CONFIG.USER_TTL });
     
     done(null, user);
   } catch (err) {
@@ -161,7 +205,10 @@ passport.use(new DiscordStrategy({
     // Проверяем кэш Redis
     const cachedUser = await redis.get(`user:${profile.id}`);
     if (cachedUser) {
-      return done(null, JSON.parse(cachedUser));
+      const userData = decompressData(cachedUser);
+      if (userData) {
+        return done(null, userData);
+      }
     }
 
     const { data: existingUser, error: selectError } = await supabaseAdmin
@@ -184,16 +231,34 @@ passport.use(new DiscordStrategy({
 
       if (insertError) return done(insertError);
 
-      // Кэшируем нового пользователя
-      await redis.set(`user:${profile.id}`, JSON.stringify(newUser), { ex: 3600 });
+      // Кэшируем только необходимые поля
+      const cacheData = {
+        id: newUser.id,
+        discord_id: newUser.discord_id,
+        discord_username: newUser.discord_username,
+        minecraft_username: newUser.minecraft_username,
+        balance: newUser.balance
+      };
+
+      const compressedData = await compressData(cacheData);
+      await redis.set(`user:${profile.id}`, compressedData, { ex: CACHE_CONFIG.USER_TTL });
       
       return done(null, newUser);
     }
 
     if (selectError) return done(selectError);
 
-    // Кэшируем существующего пользователя
-    await redis.set(`user:${profile.id}`, JSON.stringify(existingUser), { ex: 3600 });
+    // Кэшируем только необходимые поля
+    const cacheData = {
+      id: existingUser.id,
+      discord_id: existingUser.discord_id,
+      discord_username: existingUser.discord_username,
+      minecraft_username: existingUser.minecraft_username,
+      balance: existingUser.balance
+    };
+
+    const compressedData = await compressData(cacheData);
+    await redis.set(`user:${profile.id}`, compressedData, { ex: CACHE_CONFIG.USER_TTL });
     
     done(null, existingUser);
   } catch (err) {
@@ -201,7 +266,7 @@ passport.use(new DiscordStrategy({
   }
 }));
 
-// Добавляем функцию для инвалидации кэша пользователя
+// Оптимизированная функция инвалидации кэша
 async function invalidateUserCache(discordId) {
   try {
     await redis.del(`user:${discordId}`);
@@ -209,6 +274,24 @@ async function invalidateUserCache(discordId) {
     console.error('Error invalidating user cache:', err);
   }
 }
+
+// Добавляем функцию для очистки устаревших кэшей
+async function cleanupOldCaches() {
+  try {
+    const keys = await redis.keys('user:*');
+    if (keys.length > 1000) { // Если больше 1000 ключей
+      const oldestKeys = keys.slice(0, keys.length - 1000);
+      if (oldestKeys.length > 0) {
+        await Promise.all(oldestKeys.map(key => redis.del(key)));
+      }
+    }
+  } catch (err) {
+    console.error('Error cleaning up old caches:', err);
+  }
+}
+
+// Запускаем очистку каждые 6 часов
+setInterval(cleanupOldCaches, 6 * 60 * 60 * 1000);
 
 // --- Инициализация приложения ---
 const app = express();
