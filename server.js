@@ -44,7 +44,11 @@ class SupabaseStore extends session.Store {
 
       try {
         const session = JSON.parse(data.session);
-        console.log('Retrieved session:', { sid, session }); // Debug log
+        console.log('Retrieved session data:', {
+          sid,
+          hasPassport: !!session.passport,
+          passportUser: session.passport?.user
+        }); // Debug log
         callback(null, session);
       } catch (parseError) {
         console.error('Error parsing session data:', parseError);
@@ -58,15 +62,22 @@ class SupabaseStore extends session.Store {
 
   async set(sid, session, callback) {
     try {
-      console.log('Setting session:', { sid, session }); // Debug log
+      console.log('Setting session:', {
+        sid,
+        hasPassport: !!session.passport,
+        passportUser: session.passport?.user
+      }); // Debug log
+
       const expiresAt = new Date(Date.now() + this.ttl * 1000);
+      const sessionData = {
+        sid,
+        session: JSON.stringify(session),
+        expires_at: expiresAt.toISOString()
+      };
+
       const { error } = await supabaseAdmin
         .from('sessions')
-        .upsert({
-          sid,
-          session: JSON.stringify(session),
-          expires_at: expiresAt.toISOString()
-        }, {
+        .upsert(sessionData, {
           onConflict: 'sid'
         });
 
@@ -111,7 +122,8 @@ class SupabaseStore extends session.Store {
       const { error } = await supabaseAdmin
         .from('sessions')
         .update({
-          expires_at: expiresAt.toISOString()
+          expires_at: expiresAt.toISOString(),
+          session: JSON.stringify(session) // Update session data as well
         })
         .eq('sid', sid);
 
@@ -143,7 +155,6 @@ app.use(express.json());
 
 // 2) Сессии
 app.use(session({
-  store: new SupabaseStore(),
   secret: process.env.SESSION_SECRET || 'your-secret-key',
   resave: true,
   saveUninitialized: true,
