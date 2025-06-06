@@ -58,6 +58,62 @@ class RedisSessionStore extends EventEmitter {
       this.emit('disconnect', err);
     }
   }
+
+  async regenerate(req, fn) {
+    try {
+      const oldSid = req.sessionID;
+      const newSid = crypto.randomBytes(32).toString('hex');
+      
+      // Get old session data
+      const oldSession = await this.get(oldSid);
+      
+      // Create new session with old data
+      if (oldSession) {
+        await this.set(newSid, oldSession);
+      }
+      
+      // Delete old session
+      await this.destroy(oldSid);
+      
+      // Update session ID
+      req.sessionID = newSid;
+      
+      fn(null);
+    } catch (err) {
+      fn(err);
+    }
+  }
+
+  async all(callback) {
+    try {
+      const keys = await redis.keys('sess:*');
+      const sessions = await Promise.all(
+        keys.map(key => this.get(key.replace('sess:', '')))
+      );
+      callback(null, sessions.filter(Boolean));
+    } catch (err) {
+      callback(err);
+    }
+  }
+
+  async length(callback) {
+    try {
+      const keys = await redis.keys('sess:*');
+      callback(null, keys.length);
+    } catch (err) {
+      callback(err);
+    }
+  }
+
+  async clear(callback) {
+    try {
+      const keys = await redis.keys('sess:*');
+      await Promise.all(keys.map(key => redis.del(key)));
+      callback(null);
+    } catch (err) {
+      callback(err);
+    }
+  }
 }
 
 // Debug log for SPWorlds credentials
