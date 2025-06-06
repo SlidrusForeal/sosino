@@ -13,59 +13,93 @@ import axios from 'axios';
 class SupabaseStore extends session.Store {
   constructor() {
     super();
-    this.sessions = new Map();
+    this.cache = new Map();
+    this.cacheTimeout = 5 * 60 * 1000; // 5 минут
   }
 
   async get(sid) {
-    console.log('SupabaseStore: Getting session', sid);
+    // Проверяем кэш
+    const cached = this.cache.get(sid);
+    if (cached && Date.now() - cached.timestamp < this.cacheTimeout) {
+      return cached.data;
+    }
+
     const { data, error } = await supabaseAdmin
       .from('sessions')
-      .select('*')
+      .select('sess')
       .eq('sid', sid)
       .single();
 
-    if (error) {
-      console.error('SupabaseStore: Error getting session:', error);
+    if (error || !data) {
       return null;
     }
 
-    if (!data) {
-      console.log('SupabaseStore: No session found');
+    try {
+      const session = JSON.parse(data.sess);
+      // Сохраняем в кэш
+      this.cache.set(sid, {
+        data: session,
+        timestamp: Date.now()
+      });
+      return session;
+    } catch (err) {
       return null;
     }
-
-    console.log('SupabaseStore: Session found:', data);
-    return JSON.parse(data.sess);
   }
 
   async set(sid, sess) {
-    console.log('SupabaseStore: Setting session', sid, sess);
-    const { error } = await supabaseAdmin
-      .from('sessions')
-      .upsert({
-        sid,
-        sess: JSON.stringify(sess),
-        expire: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days
-      });
+    try {
+      const { error } = await supabaseAdmin
+        .from('sessions')
+        .upsert({
+          sid,
+          sess: JSON.stringify(sess),
+          expire: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+        });
 
-    if (error) {
-      console.error('SupabaseStore: Error setting session:', error);
-    } else {
-      console.log('SupabaseStore: Session set successfully');
+      if (!error) {
+        // Обновляем кэш
+        this.cache.set(sid, {
+          data: sess,
+          timestamp: Date.now()
+        });
+      }
+    } catch (err) {
+      console.error('Error setting session:', err);
     }
   }
 
   async destroy(sid) {
-    console.log('SupabaseStore: Destroying session', sid);
-    const { error } = await supabaseAdmin
-      .from('sessions')
-      .delete()
-      .eq('sid', sid);
+    try {
+      await supabaseAdmin
+        .from('sessions')
+        .delete()
+        .eq('sid', sid);
+      
+      // Удаляем из кэша
+      this.cache.delete(sid);
+    } catch (err) {
+      console.error('Error destroying session:', err);
+    }
+  }
 
-    if (error) {
-      console.error('SupabaseStore: Error destroying session:', error);
-    } else {
-      console.log('SupabaseStore: Session destroyed successfully');
+  // Очистка устаревших сессий
+  async cleanup() {
+    try {
+      await supabaseAdmin
+        .from('sessions')
+        .delete()
+        .lt('expire', new Date().toISOString());
+      
+      // Очищаем кэш
+      const now = Date.now();
+      for (const [sid, data] of this.cache.entries()) {
+        if (now - data.timestamp > this.cacheTimeout) {
+          this.cache.delete(sid);
+        }
+      }
+    } catch (err) {
+      console.error('Error cleaning up sessions:', err);
     }
   }
 }
@@ -89,15 +123,17 @@ const sessionStore = new SupabaseStore();
 app.use(session({
   store: sessionStore,
   secret: process.env.SESSION_SECRET,
-  resave: true,
-  saveUninitialized: true,
+  resave: false,
+  saveUninitialized: false,
   cookie: {
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
-    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 дней
     sameSite: 'lax',
     domain: process.env.NODE_ENV === 'production' ? 'sosmark.ru' : undefined
-  }
+  },
+  name: 'sessionId',
+  rolling: true
 }));
 
 // Debug middleware for session
@@ -238,33 +274,38 @@ app.get('/auth/discord/callback',
   }), 
   async (req, res) => {
     try {
-      console.log('Auth callback - User:', req.user); // Debug log
-
-      // Get user info from SPWorlds API
-      const spworldsResponse = await axios.get(`https://spworlds.ru/api/public/users/${req.user.discord_id}`, {
-        headers: {
-          'Authorization': `Bearer ${Buffer.from(`${process.env.SPWORLDS_CARD_ID}:${process.env.SPWORLDS_TOKEN}`).toString('base64')}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      // Параллельно выполняем запросы к SPWorlds и обновление пользователя
+      const [spworldsResponse, userUpdate] = await Promise.all([
+        // Получаем данные из SPWorlds
+        axios.get(`https://spworlds.ru/api/public/users/${req.user.discord_id}`, {
+          headers: {
+            'Authorization': `Bearer ${Buffer.from(`${process.env.SPWORLDS_CARD_ID}:${process.env.SPWORLDS_TOKEN}`).toString('base64')}`,
+            'Content-Type': 'application/json'
+          }
+        }),
+        // Обновляем данные пользователя
+        supabaseAdmin
+          .from('users')
+          .update({
+            last_login: new Date().toISOString()
+          })
+          .eq('discord_id', req.user.discord_id)
+      ]);
 
       const { username, uuid } = spworldsResponse.data;
-      console.log('SPWorlds user data:', { username, uuid });
 
-      // Update user in Supabase
-      const { error } = await supabaseAdmin
-        .from('users')
-        .update({
-          minecraft_username: username,
-          minecraft_uuid: uuid
-        })
-        .eq('discord_id', req.user.discord_id);
-
-      if (error) {
-        console.error('Error updating user:', error);
+      // Обновляем Minecraft данные только если они изменились
+      if (username !== req.user.minecraft_username || uuid !== req.user.minecraft_uuid) {
+        await supabaseAdmin
+          .from('users')
+          .update({
+            minecraft_username: username,
+            minecraft_uuid: uuid
+          })
+          .eq('discord_id', req.user.discord_id);
       }
 
-      // Set auth cookie
+      // Устанавливаем cookie и сохраняем сессию
       res.cookie('auth', {
         id: req.user.id,
         discord_id: req.user.discord_id,
@@ -272,20 +313,16 @@ app.get('/auth/discord/callback',
       }, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+        maxAge: 30 * 24 * 60 * 60 * 1000, // 30 дней
         sameSite: 'lax',
         domain: process.env.NODE_ENV === 'production' ? 'sosmark.ru' : undefined
       });
 
-      // Ensure session is saved
-      req.session.save((err) => {
-        if (err) {
-          console.error('Error saving session:', err);
-        }
-        res.redirect('/');
-      });
+      // Редирект без ожидания сохранения сессии
+      res.redirect('/');
     } catch (error) {
       console.error('Error in auth callback:', error);
+      // В случае ошибки все равно редиректим на главную
       res.redirect('/');
     }
   }
