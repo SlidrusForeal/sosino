@@ -27,6 +27,30 @@ import { body, validationResult } from 'express-validator';
 // --- Инициализация приложения ---
 const app = express();
 
+// Настройка доверия прокси
+app.set('trust proxy', 1);
+
+// Включаем сжатие для всех ответов
+app.use(compression());
+
+// Оптимизация статических файлов
+app.use(express.static('public', {
+  maxAge: '1d',
+  etag: true,
+  lastModified: true,
+  setHeaders: (res, path) => {
+    if (path.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-cache');
+    } else if (path.endsWith('.css') || path.endsWith('.js')) {
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+    }
+  }
+}));
+
+// Базовые middleware
+app.use(express.json());
+app.use(cookieParser());
+
 // --- Инициализация Redis клиента ---
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL,
@@ -416,39 +440,34 @@ passport.use(new DiscordStrategy({
   }
 }));
 
-// Настройка доверия прокси
-app.set('trust proxy', 1);
-
-// Включаем сжатие для всех ответов
-app.use(compression());
-
-// Оптимизация статических файлов
-app.use(express.static('public', {
-  maxAge: '1d',
-  etag: true,
-  lastModified: true,
-  setHeaders: (res, path) => {
-    if (path.endsWith('.html')) {
-      res.setHeader('Cache-Control', 'no-cache');
-    } else if (path.endsWith('.css') || path.endsWith('.js')) {
-      res.setHeader('Cache-Control', 'public, max-age=86400');
-    }
+// --- Session middleware (должен быть перед passport) ---
+app.use(session({
+  store: new RedisSessionStore(),
+  secret: process.env.SESSION_SECRET || 'your-secret-key',
+  resave: false,
+  saveUninitialized: false,
+  rolling: true,
+  cookie: {
+    secure: process.env.NODE_ENV === 'production',
+    httpOnly: true,
+    maxAge: 86400000,
+    sameSite: 'lax'
   }
 }));
 
-app.use(express.json());
-app.use(cookieParser());
+// --- Passport middleware (после session) ---
+app.use(passport.initialize());
+app.use(passport.session());
 
 // --- Rate Limiter ---
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 минут
-  max: 100, // Лимит запросов с одного IP
+  windowMs: 15 * 60 * 1000,
+  max: 100,
   message: { error: 'Too many requests, please try again later.' },
-  standardHeaders: true, // Возвращает RateLimit-* заголовки
-  legacyHeaders: false, // Отключает X-RateLimit-* заголовки
-  trustProxy: true, // Доверяем X-Forwarded-For заголовку
+  standardHeaders: true,
+  legacyHeaders: false,
+  trustProxy: true,
   keyGenerator: (req) => {
-    // Используем IP из X-Forwarded-For или реальный IP
     return req.headers['x-forwarded-for']?.split(',')[0] || req.ip;
   }
 });
@@ -464,23 +483,6 @@ const validateDeposit = [
 const validateWithdraw = [
   body('amount').isInt({ min: 1, max: 10000 }).withMessage('Amount must be between 1 and 10000'),
 ];
-
-app.use(session({
-  store: new RedisSessionStore(),
-  secret: process.env.SESSION_SECRET || 'your-secret-key',
-  resave: false, // Отключаем resave
-  saveUninitialized: false, // Отключаем saveUninitialized
-  rolling: true,
-  cookie: {
-    secure: process.env.NODE_ENV === 'production',
-    httpOnly: true,
-    maxAge: 86400000,
-    sameSite: 'lax'
-  }
-}));
-
-app.use(passport.initialize());
-app.use(passport.session());
 
 // --- Middleware для проверки аутентификации ---
 function ensureAuth(req, res, next) {
