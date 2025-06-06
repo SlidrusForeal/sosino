@@ -487,8 +487,8 @@ app.post('/api/create-payment', async (req, res) => {
         price: amount,
         comment: `Пополнение баланса в казино для ${req.user.discord_username}`
       }],
-      redirectUrl: `${process.env.SITE_URL}/payment-success`,
-      webhookUrl: `${process.env.SITE_URL}/api/payment-webhook`,
+      redirectUrl: `${process.env.SITE_URL || 'https://casino.sosmark.ru'}/payment-success`,
+      webhookUrl: `${process.env.SITE_URL || 'https://casino.sosmark.ru'}/api/payment-webhook`,
       data: JSON.stringify({ 
         type: 'deposit',
         userId: req.user.id,
