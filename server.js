@@ -8,7 +8,6 @@ import { supabase, supabaseAdmin, createTransaction, getBalance, getUser } from 
 import fs from 'fs';
 import crypto from 'crypto';
 import axios from 'axios';
-import rateLimit from 'express-rate-limit';
 
 // Custom Session Store using Supabase
 class SupabaseStore extends session.Store {
@@ -404,25 +403,8 @@ app.get('/auth/discord/callback',
   }
 );
 
-// Добавляем rate limiting
-const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 минут
-  max: 100, // максимум 100 запросов с одного IP
-  message: { error: 'Too many requests, please try again later.' }
-});
-
-// Создаем отдельный лимитер для auth/user
-const authUserLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 минута
-  max: 5, // максимум 5 запросов в минуту
-  message: { error: 'Too many authentication checks, please try again later.' }
-});
-
-// Применяем общий rate limiter ко всем API запросам
-app.use('/api/', apiLimiter);
-
 // --- Проверка, кто сейчас залогинен ---
-app.get('/api/auth/user', authUserLimiter, async (req, res) => {
+app.get('/api/auth/user', async (req, res) => {
   try {
     // Проверяем наличие кэшированных данных в сессии
     if (req.session.lastAuthCheck && 
