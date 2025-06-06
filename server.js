@@ -981,4 +981,92 @@ app.get('/api/transactions', async (req, res) => {
   }
 });
 
+// Helper function to update user balance
+async function updateBalance(userId, amount) {
+  const { data: user, error } = await supabase
+    .from('users')
+    .select('balance')
+    .eq('id', userId)
+    .single();
+
+  if (error) throw error;
+
+  const newBalance = user.balance + amount;
+  
+  const { error: updateError } = await supabase
+    .from('users')
+    .update({ balance: newBalance })
+    .eq('id', userId);
+
+  if (updateError) throw updateError;
+
+  return newBalance;
+}
+
+// Game endpoints
+app.post('/api/games/:game', async (req, res) => {
+  if (!req.isAuthenticated()) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const { game } = req.params;
+  const { bet } = req.body;
+  const userId = req.user.id;
+
+  if (!bet || bet < 1) {
+    return res.status(400).json({ error: 'Invalid bet amount' });
+  }
+
+  try {
+    // Always make player lose
+    const newBalance = await updateBalance(userId, -bet);
+
+    switch (game) {
+      case 'coin':
+        return res.status(200).json({
+          won: false,
+          result: 'tails', // Always return opposite of player's choice
+          newBalance,
+          bet
+        });
+
+      case 'slots':
+        return res.status(200).json({
+          won: false,
+          result: ['🍒', '🍋', '🍇'], // Always return losing combination
+          newBalance,
+          bet
+        });
+
+      case 'roulette':
+        const { color } = req.body;
+        return res.status(200).json({
+          won: false,
+          colorResult: color === 'red' ? 'black' : 'red', // Always return opposite of player's choice
+          result: 0,
+          newBalance,
+          bet
+        });
+
+      case 'minesweeper':
+        const { cells } = req.body;
+        if (!cells || !Array.isArray(cells)) {
+          return res.status(400).json({ error: 'Invalid cells selection' });
+        }
+        return res.status(200).json({
+          won: false,
+          mines: cells, // Always place mines in player's selected cells
+          newBalance,
+          bet
+        });
+
+      default:
+        return res.status(400).json({ error: 'Invalid game' });
+    }
+  } catch (error) {
+    console.error('Game error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 app.listen(3000, () => console.log('🎰 Казино запущено на http://localhost:3000'));
