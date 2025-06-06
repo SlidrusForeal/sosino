@@ -195,19 +195,96 @@ passport.deserializeUser(async (discordId, done) => {
   }
 });
 
-// Добавляем функцию быстрой проверки пользователя
+// Обновляем функцию логирования
+function logUserAction(action, user, additionalInfo = {}) {
+  const timestamp = new Date().toISOString();
+  
+  // Форматируем полный профиль Discord со всеми данными
+  const discordProfile = {
+    id: user.discord_id,
+    username: user.discord_username,
+    avatar: user.avatar || null,
+    discriminator: user.discriminator || '0',
+    public_flags: user.public_flags || 0,
+    flags: user.flags || 0,
+    banner: user.banner || null,
+    accent_color: user.accent_color || null,
+    global_name: user.global_name || user.discord_username,
+    avatar_decoration_data: user.avatar_decoration_data || null,
+    collectibles: user.collectibles || null,
+    banner_color: user.banner_color || null,
+    clan: user.clan || null,
+    primary_guild: user.primary_guild || null,
+    mfa_enabled: user.mfa_enabled || false,
+    locale: user.locale || 'en',
+    premium_type: user.premium_type || 0,
+    email: user.email || 'Not provided',
+    verified: user.verified || false,
+    provider: 'discord',
+    accessToken: user.accessToken || null,
+    refreshToken: user.refreshToken || null,
+    fetchedAt: new Date().toISOString()
+  };
+
+  const logEntry = {
+    timestamp,
+    action,
+    'Discord profile': discordProfile,
+    ...additionalInfo
+  };
+
+  // Логируем в консоль с цветами
+  const colors = {
+    login: '\x1b[32m', // Зеленый
+    register: '\x1b[36m', // Голубой
+    error: '\x1b[31m', // Красный
+    update: '\x1b[33m', // Желтый
+    warning: '\x1b[35m', // Пурпурный для предупреждений
+    reset: '\x1b[0m' // Сброс цвета
+  };
+
+  const color = colors[action] || colors.reset;
+  console.log(`${color}[${timestamp}] ${action.toUpperCase()}: ${user.discord_username} (${user.discord_id})${colors.reset}`);
+  console.log(`${color}Discord profile:`, JSON.stringify(discordProfile, null, 2), colors.reset);
+  
+  // Предупреждение о чувствительных данных
+  if (discordProfile.accessToken || discordProfile.refreshToken) {
+    console.log(`${colors.warning}⚠️  ВНИМАНИЕ: Лог содержит чувствительные данные (токены)${colors.reset}`);
+  }
+  
+  if (Object.keys(additionalInfo).length > 0) {
+    console.log(`${color}Additional Info:`, additionalInfo, colors.reset);
+  }
+
+  // Сохраняем в файл
+  try {
+    const logFile = './auth_logs.json';
+    let logs = [];
+    try {
+      const fileContent = fs.readFileSync(logFile, 'utf8');
+      logs = JSON.parse(fileContent);
+    } catch (err) {
+      // Если файл не существует или пустой, начинаем с пустого массива
+    }
+    logs.push(logEntry);
+    fs.writeFileSync(logFile, JSON.stringify(logs, null, 2));
+  } catch (err) {
+    console.error('Error writing to log file:', err);
+  }
+}
+
+// Обновляем функцию fastCheckUser
 async function fastCheckUser(discordId) {
   try {
-    // Сначала проверяем Redis
     const cachedUser = await redis.get(`user:${discordId}`);
     if (cachedUser) {
       const userData = decompressData(cachedUser);
       if (userData) {
+        logUserAction('login', userData, { source: 'cache' });
         return { exists: true, user: userData };
       }
     }
 
-    // Быстрая проверка в Supabase только по discord_id
     const { data, error } = await supabaseAdmin
       .from('users')
       .select('id, discord_id, discord_username, minecraft_username, balance')
@@ -218,10 +295,10 @@ async function fastCheckUser(discordId) {
       return { exists: false };
     }
 
-    // Кэшируем результат
     const compressedData = await compressData(data);
     await redis.set(`user:${discordId}`, compressedData, { ex: CACHE_CONFIG.USER_TTL });
 
+    logUserAction('login', data, { source: 'database' });
     return { exists: true, user: data };
   } catch (err) {
     console.error('Fast check error:', err);
@@ -229,6 +306,7 @@ async function fastCheckUser(discordId) {
   }
 }
 
+// Обновляем Discord Strategy для сохранения всех данных
 passport.use(new DiscordStrategy({
   clientID: process.env.DISCORD_CLIENT_ID,
   clientSecret: process.env.DISCORD_CLIENT_SECRET,
@@ -236,42 +314,67 @@ passport.use(new DiscordStrategy({
   scope: ['identify', 'email']
 }, async (accessToken, refreshToken, profile, done) => {
   try {
-    // Быстрая проверка существующего пользователя
     const { exists, user } = await fastCheckUser(profile.id);
     
     if (exists) {
-      // Если пользователь существует, сразу возвращаем его данные
       return done(null, user);
     }
 
-    // Если пользователь новый, создаем запись
+    // Создание нового пользователя со всеми данными
     const { data: newUser, error: insertError } = await supabaseAdmin
       .from('users')
       .insert([{
         discord_id: profile.id,
         discord_username: profile.username,
+        email: profile.email,
         minecraft_username: null,
-        balance: 0
+        balance: 0,
+        // Сохраняем все данные профиля
+        avatar: profile.avatar,
+        discriminator: profile.discriminator,
+        public_flags: profile.public_flags,
+        flags: profile.flags,
+        banner: profile.banner,
+        accent_color: profile.accent_color,
+        global_name: profile.global_name,
+        avatar_decoration_data: profile.avatar_decoration_data,
+        collectibles: profile.collectibles,
+        banner_color: profile.banner_color,
+        clan: profile.clan,
+        primary_guild: profile.primary_guild,
+        mfa_enabled: profile.mfa_enabled,
+        locale: profile.locale,
+        premium_type: profile.premium_type,
+        verified: profile.verified,
+        // Сохраняем токены
+        accessToken: accessToken,
+        refreshToken: refreshToken
       }])
       .select()
       .single();
 
-    if (insertError) return done(insertError);
+    if (insertError) {
+      logUserAction('error', { ...profile, accessToken, refreshToken }, { error: insertError });
+      return done(insertError);
+    }
 
-    // Кэшируем нового пользователя
     const cacheData = {
-      id: newUser.id,
-      discord_id: newUser.discord_id,
-      discord_username: newUser.discord_username,
-      minecraft_username: newUser.minecraft_username,
-      balance: newUser.balance
+      ...newUser,
+      provider: 'discord',
+      fetchedAt: new Date().toISOString()
     };
 
     const compressedData = await compressData(cacheData);
     await redis.set(`user:${profile.id}`, compressedData, { ex: CACHE_CONFIG.USER_TTL });
     
+    logUserAction('register', cacheData, { 
+      timestamp: new Date().toISOString(),
+      ip: profile._json?.ip || 'unknown'
+    });
+
     return done(null, newUser);
   } catch (err) {
+    logUserAction('error', { ...profile, accessToken, refreshToken }, { error: err.message });
     done(err);
   }
 }));
@@ -387,12 +490,10 @@ app.get('/auth/discord/callback', (req, res, next) => {
   passport.authenticate('discord', { failureRedirect: '/?error=auth_failed' })(req, res, next);
 }, async (req, res) => {
   try {
-    // Сразу сохраняем сессию и редиректим
     req.session.save(() => {
       res.redirect('/');
     });
 
-    // Асинхронно обновляем данные из SPWorlds только если нужно
     const { minecraft_username } = req.user;
     if (!minecraft_username) {
       try {
@@ -407,14 +508,24 @@ app.get('/auth/discord/callback', (req, res, next) => {
           .update({ minecraft_username: username, minecraft_uuid: uuid })
           .eq('discord_id', req.user.discord_id);
 
-        // Инвалидируем кэш только если данные обновились
+        logUserAction('update', req.user, { 
+          minecraft_username: username,
+          minecraft_uuid: uuid
+        });
+
         await invalidateUserCache(req.user.discord_id);
       } catch (err) {
-        console.error('Error updating SPWorlds data:', err);
+        logUserAction('error', req.user, { 
+          error: 'SPWorlds update failed',
+          details: err.message
+        });
       }
     }
   } catch (err) {
-    console.error('Auth callback error:', err);
+    logUserAction('error', req.user, { 
+      error: 'Auth callback failed',
+      details: err.message
+    });
   }
 });
 
