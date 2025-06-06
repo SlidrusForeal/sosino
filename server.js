@@ -21,6 +21,8 @@ import { Redis } from '@upstash/redis';
 import { EventEmitter } from 'events';
 import compression from 'compression';
 import path from 'path';
+import rateLimit from 'express-rate-limit';
+import { body, validationResult } from 'express-validator';
 
 // --- Инициализация Redis клиента ---
 const redis = new Redis({
@@ -29,6 +31,22 @@ const redis = new Redis({
   timeout: 5000,
   retryStrategy: (times) => times > 3 ? null : Math.min(times * 1000, 3000)
 });
+
+// --- Rate Limiter ---
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 минут
+  max: 100, // Лимит запросов с одного IP
+  message: { error: 'Too many requests, please try again later.' }
+});
+
+// --- Валидация запросов ---
+const validateDeposit = [
+  body('amount').isInt({ min: 1, max: 10000 }).withMessage('Amount must be between 1 and 10000'),
+];
+
+const validateWithdraw = [
+  body('amount').isInt({ min: 1, max: 10000 }).withMessage('Amount must be between 1 and 10000'),
+];
 
 // --- Пользовательский RedisSessionStore ---
 class RedisSessionStore extends EventEmitter {
@@ -193,6 +211,7 @@ app.use(express.static('public', {
 
 app.use(express.json());
 app.use(cookieParser());
+app.use(limiter);
 
 app.use(session({
   store: new RedisSessionStore(),
@@ -256,7 +275,18 @@ app.get('/api/auth/user', ensureAuth, (req, res) => {
 // --- Balance ---
 app.get('/api/balance', ensureAuth, async (req, res, next) => {
   try {
+    // Проверяем кэш Redis
+    const cachedBalance = await redis.get(`balance:${req.user.id}`);
+    if (cachedBalance) {
+      return res.json({ balance: parseInt(cachedBalance) });
+    }
+
+    // Если нет в кэше, получаем из БД
     const balance = await getBalance(req.user.id);
+    
+    // Кэшируем на 5 минут
+    await redis.set(`balance:${req.user.id}`, balance, { ex: 300 });
+    
     res.json({ balance });
   } catch (err) {
     next(err);
@@ -264,29 +294,65 @@ app.get('/api/balance', ensureAuth, async (req, res, next) => {
 });
 
 // --- Депозит ---
-app.post('/api/deposit', ensureAuth, async (req, res, next) => {
+app.post('/api/deposit', ensureAuth, validateDeposit, async (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+
   const amount = parseInt(req.body.amount, 10);
-  if (isNaN(amount) || amount <= 0) return res.status(400).json({ error: 'Invalid amount' });
   try {
+    // Используем транзакцию для атомарного обновления
+    const { data, error } = await supabaseAdmin.rpc('deposit_funds', {
+      user_id: req.user.id,
+      deposit_amount: amount
+    });
+
+    if (error) throw error;
+
     await createTransaction(req.user.id, 'deposit', amount);
-    await supabaseAdmin.from('users')
-      .update({ balance: (req.user.balance || 0) + amount })
-      .eq('id', req.user.id);
-    res.json({ message: `Successfully deposited ${amount} AR` });
+    res.json({ 
+      message: `Successfully deposited ${amount} AR`,
+      newBalance: data.new_balance 
+    });
   } catch (err) {
     next(err);
   }
 });
 
 // --- Withdraw ---
-app.post('/api/withdraw', ensureAuth, async (req, res, next) => {
+app.post('/api/withdraw', ensureAuth, validateWithdraw, async (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+
   const amount = parseInt(req.body.amount, 10);
-  if (isNaN(amount) || amount < 1 || amount > 10000) return res.status(400).json({ error: 'Invalid amount' });
   try {
-    const balance = await getBalance(req.user.id);
-    if (balance < amount) return res.status(403).json({ error: 'Insufficient funds' });
+    // Проверяем баланс через Redis кэш
+    const cachedBalance = await redis.get(`balance:${req.user.id}`);
+    const balance = cachedBalance ? parseInt(cachedBalance) : await getBalance(req.user.id);
+    
+    if (balance < amount) {
+      return res.status(403).json({ error: 'Insufficient funds' });
+    }
+
+    // Используем транзакцию для атомарного обновления
+    const { data, error } = await supabaseAdmin.rpc('withdraw_funds', {
+      user_id: req.user.id,
+      withdraw_amount: amount
+    });
+
+    if (error) throw error;
+
+    // Обновляем кэш баланса
+    await redis.set(`balance:${req.user.id}`, data.new_balance, { ex: 300 }); // 5 минут кэша
+
     await createTransaction(req.user.id, 'withdraw', amount);
-    res.json({ message: `Successfully withdrew ${amount} AR` });
+    res.json({ 
+      message: `Successfully withdrew ${amount} AR`,
+      newBalance: data.new_balance 
+    });
   } catch (err) {
     next(err);
   }
