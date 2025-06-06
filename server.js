@@ -195,14 +195,11 @@ passport.serializeUser((user, done) => {
     return done(null, null);
   }
   
-  // Store complete user data
+  // Store minimal user data
   const userData = {
     id: user.id,
     discord_id: user.discord_id,
-    discord_username: user.discord_username,
-    minecraft_username: user.minecraft_username,
-    minecraft_uuid: user.minecraft_uuid,
-    balance: user.balance
+    discord_username: user.discord_username
   };
   console.log('Serialized user data:', userData); // Debug log
   done(null, userData);
@@ -232,14 +229,8 @@ passport.deserializeUser(async (userData, done) => {
       return done(null, false);
     }
 
-    // Merge stored data with fresh data from database
-    const mergedUser = {
-      ...userData,
-      ...user
-    };
-
-    console.log('Deserialized user:', mergedUser);
-    done(null, mergedUser);
+    console.log('Deserialized user:', user);
+    done(null, user);
   } catch (error) {
     console.error('Error in deserializeUser:', error);
     done(error);
@@ -315,8 +306,7 @@ app.get('/auth/discord/callback',
   }), 
   async (req, res) => {
     try {
-      console.log('Auth callback - Session before:', req.session); // Debug log
-      console.log('Auth callback - User before:', req.user); // Debug log
+      console.log('Auth callback - User:', req.user); // Debug log
 
       // Get user info from SPWorlds API
       const spworldsResponse = await axios.get(`https://spworlds.ru/api/public/users/${req.user.discord_id}`, {
@@ -342,25 +332,20 @@ app.get('/auth/discord/callback',
         console.error('Error updating user:', error);
       }
 
-      // Update the session with the latest user data
-      req.session.passport = {
-        user: {
-          ...req.user,
-          minecraft_username: username,
-          minecraft_uuid: uuid
-        }
-      };
-
-      // Save the session explicitly
-      req.session.save((err) => {
-        if (err) {
-          console.error('Error saving session:', err);
-          return res.redirect('/');
-        }
-        console.log('Auth callback - Session after:', req.session); // Debug log
-        console.log('Auth callback - User after:', req.user); // Debug log
-        res.redirect('/');
+      // Set auth cookie
+      res.cookie('auth', {
+        id: req.user.id,
+        discord_id: req.user.discord_id,
+        discord_username: req.user.discord_username
+      }, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 24 * 60 * 60 * 1000, // 24 hours
+        sameSite: 'lax',
+        domain: process.env.NODE_ENV === 'production' ? '.sosmark.ru' : undefined
       });
+
+      res.redirect('/');
     } catch (error) {
       console.error('Error fetching SPWorlds data:', error);
       res.redirect('/');
@@ -369,24 +354,35 @@ app.get('/auth/discord/callback',
 );
 
 // --- Проверка, кто сейчас залогинен ---
-app.get('/api/auth/user', (req, res) => {
+app.get('/api/auth/user', async (req, res) => {
   try {
-    console.log('Auth check - Session:', req.session); // Debug log
-    console.log('Auth check - User:', req.user); // Debug log
-    console.log('Auth check - Session ID:', req.sessionID); // Debug log
+    const authCookie = req.cookies.auth;
+    console.log('Auth cookie:', authCookie); // Debug log
 
-    if (!req.isAuthenticated()) {
-      console.log('User not authenticated'); // Debug log
+    if (!authCookie || !authCookie.discord_id) {
+      console.log('No auth cookie found');
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    // Return user data including Minecraft data
+    // Get fresh user data from database
+    const { data: user, error } = await supabaseAdmin
+      .from('users')
+      .select('*')
+      .eq('discord_id', authCookie.discord_id)
+      .single();
+
+    if (error || !user) {
+      console.error('Error getting user data:', error);
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    // Return user data
     const userData = {
-      discord_username: req.user.discord_username,
-      discord_id: req.user.discord_id,
-      minecraft_username: req.user.minecraft_username || 'Unknown',
-      minecraft_uuid: req.user.minecraft_uuid || null,
-      balance: req.user.balance || 0
+      discord_username: user.discord_username,
+      discord_id: user.discord_id,
+      minecraft_username: user.minecraft_username || 'Unknown',
+      minecraft_uuid: user.minecraft_uuid || null,
+      balance: user.balance || 0
     };
 
     console.log('Sending user data:', userData); // Debug log
@@ -395,6 +391,12 @@ app.get('/api/auth/user', (req, res) => {
     console.error('Error in /api/auth/user:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
+});
+
+// --- Выход из аккаунта ---
+app.get('/auth/logout', (req, res) => {
+  res.clearCookie('auth');
+  res.redirect('/');
 });
 
 // --- Получение баланса пользователя ---
