@@ -68,6 +68,12 @@ console.log('SPWorlds Credentials:', {
 
 const app = express();
 
+// Debug middleware
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.url}`);
+  next();
+});
+
 // 1) Статические файлы и JSON-парсинг
 app.use(express.static('public'));
 app.use(express.json());
@@ -183,6 +189,12 @@ passport.use(new DiscordStrategy({
 // --- Маршрут для авторизации через Discord ---
 app.get('/auth/discord', (req, res, next) => {
   console.log('Starting Discord authentication...');
+  console.log('Discord OAuth2 Config:', {
+    clientID: process.env.DISCORD_CLIENT_ID ? 'Set' : 'Missing',
+    callbackURL: process.env.DISCORD_CALLBACK_URL || `${process.env.SITE_URL}/auth/discord/callback`,
+    scope: ['identify', 'email']
+  });
+  
   passport.authenticate('discord', {
     scope: ['identify', 'email'],
     prompt: 'consent'
@@ -192,6 +204,9 @@ app.get('/auth/discord', (req, res, next) => {
 app.get('/auth/discord/callback', 
   (req, res, next) => {
     console.log('Discord callback received');
+    console.log('Callback URL:', req.originalUrl);
+    console.log('Query params:', req.query);
+    
     passport.authenticate('discord', { 
       failureRedirect: '/',
       failureMessage: true
@@ -774,6 +789,12 @@ app.get('/api/transactions', async (req, res) => {
     console.error('Error getting transactions:', err);
     return res.status(500).json({ error: 'Error getting transactions' });
   }
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error('Error:', err);
+  res.status(500).json({ error: 'Internal server error' });
 });
 
 app.listen(3000, () => console.log('🎰 Казино запущено на http://localhost:3000'));
