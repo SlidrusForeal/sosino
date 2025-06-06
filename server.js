@@ -1,7 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
 import session from 'express-session';
-import FileStore from 'session-file-store';
 import cookieParser from 'cookie-parser';
 import passport from 'passport';
 import DiscordStrategy from 'passport-discord';
@@ -10,7 +9,82 @@ import fs from 'fs';
 import crypto from 'crypto';
 import axios from 'axios';
 
-const FileStoreSession = FileStore(session);
+// Custom Session Store using Supabase
+class SupabaseStore extends session.Store {
+  constructor() {
+    super();
+    this.ttl = 86400; // 24 hours in seconds
+  }
+
+  async get(sid, callback) {
+    try {
+      const { data, error } = await supabaseAdmin
+        .from('sessions')
+        .select('*')
+        .eq('sid', sid)
+        .single();
+
+      if (error) {
+        console.error('Session get error:', error);
+        return callback(error);
+      }
+
+      if (!data) {
+        return callback(null, null);
+      }
+
+      // Check if session is expired
+      if (data.expires_at && new Date(data.expires_at) < new Date()) {
+        await this.destroy(sid);
+        return callback(null, null);
+      }
+
+      callback(null, JSON.parse(data.session));
+    } catch (err) {
+      callback(err);
+    }
+  }
+
+  async set(sid, session, callback) {
+    try {
+      const expiresAt = new Date(Date.now() + this.ttl * 1000);
+      const { error } = await supabaseAdmin
+        .from('sessions')
+        .upsert({
+          sid,
+          session: JSON.stringify(session),
+          expires_at: expiresAt.toISOString()
+        });
+
+      if (error) {
+        console.error('Session set error:', error);
+        return callback(error);
+      }
+
+      callback();
+    } catch (err) {
+      callback(err);
+    }
+  }
+
+  async destroy(sid, callback) {
+    try {
+      const { error } = await supabaseAdmin
+        .from('sessions')
+        .delete()
+        .eq('sid', sid);
+
+      if (error) {
+        console.error('Session destroy error:', error);
+        return callback(error);
+      }
+
+      callback();
+    } catch (err) {
+      callback(err);
+    }
+  }
+}
 
 // Debug log for SPWorlds credentials
 console.log('SPWorlds Credentials:', {
@@ -26,12 +100,7 @@ app.use(express.json());
 
 // 2) Сессии
 app.use(session({
-  store: new FileStoreSession({
-    path: '/tmp/sessions',
-    ttl: 86400, // 24 hours
-    reapInterval: 3600, // Clean up expired sessions every hour
-    secret: process.env.SESSION_SECRET || 'your-secret-key'
-  }),
+  store: new SupabaseStore(),
   secret: process.env.SESSION_SECRET || 'your-secret-key',
   resave: true,
   saveUninitialized: true,
