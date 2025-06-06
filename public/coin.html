@@ -178,14 +178,14 @@
       animateCoin();
 
       try {
-        const response = await fetch('/api/coin', {
+        const response = await fetch('/api/play/coin', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
           },
           credentials: 'include',
           body: JSON.stringify({
-            side: selectedSide,
+            choice: selectedSide,
             bet: currentBet
           })
         });

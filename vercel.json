@@ -12,6 +12,10 @@
   ],
   "routes": [
     {
+      "src": "/api/play/coin",
+      "dest": "/server.js"
+    },
+    {
       "src": "/api/minesweeper",
       "dest": "/server.js"
     },
