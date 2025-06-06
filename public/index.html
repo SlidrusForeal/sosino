@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Казино SOSINO</title>
+  <link rel="stylesheet" href="styles.css">
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    // Предзагрузка критических ресурсов
+    const preloadLinks = [
+      { rel: 'preload', href: 'styles.css', as: 'style' },
+      { rel: 'preload', href: 'https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap', as: 'style' }
+    ];
+    preloadLinks.forEach(link => {
+      const linkEl = document.createElement('link');
+      Object.assign(linkEl, link);
+      document.head.appendChild(linkEl);
+    });
+  </script>
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="logo">
+        <h1>🎰 SOSINO</h1>
+      </div>
+      <div id="user-info" class="user-info-container">
+        <a href="/auth/discord" class="btn btn-primary">Войти через Discord</a>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <!-- Welcome Section -->
+      <section class="welcome-section">
+        <h2>Добро пожаловать в Казино SOSINO 💎</h2>
+        <p class="subtitle">Испытайте удачу в лучших играх Minecraft</p>
+      </section>
+
+      <!-- Games Grid -->
+      <section class="games-section">
+        <div class="games-grid">
+          <a href="/coin.html" class="game-card">
+            <div class="game-icon">🪙</div>
+            <h3>Монетка</h3>
+            <p>Орел или решка?</p>
+          </a>
+          <a href="/slots.html" class="game-card">
+            <div class="game-icon">🎰</div>
+            <h3>Слоты</h3>
+            <p>Крутите барабаны!</p>
+          </a>
+          <a href="/roulette.html" class="game-card">
+            <div class="game-icon">🎲</div>
+            <h3>Рулетка</h3>
+            <p>Испытайте судьбу</p>
+          </a>
+          <a href="/minesweeper.html" class="game-card">
+            <div class="game-icon">💣</div>
+            <h3>Сапёр</h3>
+            <p>Найди все мины</p>
+          </a>
+        </div>
+      </section>
+
+      <!-- Balance Section -->
+      <section class="balance-section">
+        <div class="balance-card">
+          <h3>Ваш баланс</h3>
+          <div class="balance-amount">
+            <span id="balance-display">0</span>
+            <span class="currency">руды</span>
+          </div>
+          <div class="balance-actions">
+            <div class="payment-links">
+              <a href="/payment.html" class="btn btn-secondary">Пополнить через SPWorlds</a>
+              <a href="/withdraw.html" class="btn btn-secondary">Вывести средства</a>
+            </div>
+          </div>
+          <div id="deposit-status" class="status-message"></div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <p>© 2024 Казино SOSINO. Все права защищены.</p>
+    </footer>
+  </div>
+
+  <script>
+    // Оптимизированная загрузка данных пользователя
+    async function loadUserData() {
+      try {
+        const res = await fetch('/api/auth/user', {
+          headers: {
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
+          }
+        });
+        
+        if (!res.ok) {
+          throw new Error('Unauthorized');
+        }
+        
+        const user = await res.json();
+        const infoDiv = document.getElementById('user-info');
+        const balanceDisplay = document.getElementById('balance-display');
+
+        if (user.discord_username) {
+          // Используем шаблонные строки для оптимизации рендеринга
+          infoDiv.innerHTML = `
+            <div class="user-profile">
+              <img src="https://mc-heads.net/avatar/${user.minecraft_username}" 
+                   alt="Minecraft Avatar" 
+                   class="minecraft-avatar"
+                   loading="lazy">
+              <div class="user-details">
+                <div class="discord-name">${user.discord_username}</div>
+                <div class="minecraft-name">${user.minecraft_username}</div>
+              </div>
+            </div>
+          `;
+          balanceDisplay.textContent = user.balance;
+        } else {
+          infoDiv.innerHTML = '<a href="/auth/discord" class="btn btn-primary">Войти через Discord</a>';
+        }
+      } catch (err) {
+        console.error('Auth error:', err);
+        const infoDiv = document.getElementById('user-info');
+        infoDiv.innerHTML = '<a href="/auth/discord" class="btn btn-primary">Войти через Discord</a>';
+      }
+    }
+
+    // Загружаем данные пользователя после загрузки DOM
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', loadUserData);
+    } else {
+      loadUserData();
+    }
+
+    // Handle deposit form
+    document.getElementById('deposit-form').addEventListener('submit', async e => {
+      e.preventDefault();
+      const amount = parseInt(document.getElementById('deposit-amount').value, 10);
+      const statusEl = document.getElementById('deposit-status');
+
+      try {
+        const res = await fetch('/api/deposit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ amount })
+        });
+
+        const data = await res.json();
+        if (res.ok) {
+          statusEl.className = 'status-message success';
+          statusEl.innerText = data.message;
+          // Update balance display
+          const balanceDisplay = document.getElementById('balance-display');
+          balanceDisplay.textContent = parseInt(balanceDisplay.textContent) + amount;
+        } else {
+          statusEl.className = 'status-message error';
+          statusEl.innerText = data.error || 'Ошибка';
+        }
+      } catch (error) {
+        statusEl.className = 'status-message error';
+        statusEl.innerText = 'Ошибка при обработке запроса';
+      }
+    });
+  </script>
+</body>
+</html>
