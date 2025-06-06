@@ -94,23 +94,35 @@ app.use(express.static('public', {
 app.use(express.json());
 app.use(cookieParser());
 
-// --- Passport конфигурация ---
+// --- Session middleware (должен быть перед passport) ---
+const sessionMiddleware = session({
+  store: sessionStore,
+  secret: process.env.SESSION_SECRET || 'your-secret-key',
+  resave: true, // Изменено на true для совместимости с Passport
+  saveUninitialized: true, // Изменено на true для совместимости с Passport
+  rolling: true,
+  cookie: {
+    secure: process.env.NODE_ENV === 'production',
+    httpOnly: true,
+    maxAge: 86400000,
+    sameSite: 'lax'
+  }
+});
+
+// Применяем session middleware
+app.use(sessionMiddleware);
+
+// --- Passport middleware (после session) ---
+app.use(passport.initialize());
+app.use(passport.session());
+
+// Настройка сериализации Passport
 passport.serializeUser((user, done) => {
   done(null, user.discord_id);
 });
 
 passport.deserializeUser(async (discordId, done) => {
   try {
-    // Проверяем кэш Redis
-    const cachedUser = await redis.get(`user:${discordId}`);
-    if (cachedUser) {
-      const userData = decompressData(cachedUser);
-      if (userData) {
-        return done(null, userData);
-      }
-    }
-
-    // Если нет в кэше или ошибка распаковки, получаем из БД
     const { data: user, error } = await supabaseAdmin
       .from('users')
       .select('*')
@@ -118,20 +130,6 @@ passport.deserializeUser(async (discordId, done) => {
       .single();
 
     if (error || !user) return done(error || new Error('User not found'));
-
-    // Кэшируем только необходимые поля
-    const cacheData = {
-      id: user.id,
-      discord_id: user.discord_id,
-      discord_username: user.discord_username,
-      minecraft_username: user.minecraft_username,
-      balance: user.balance
-    };
-
-    // Сжимаем и кэшируем данные
-    const compressedData = await compressData(cacheData);
-    await redis.set(`user:${discordId}`, compressedData, { ex: CACHE_CONFIG.USER_TTL });
-    
     done(null, user);
   } catch (err) {
     done(err);
@@ -352,25 +350,6 @@ passport.use(new DiscordStrategy({
     done(err);
   }
 }));
-
-// --- Session middleware (должен быть перед passport) ---
-app.use(session({
-  store: sessionStore,
-  secret: process.env.SESSION_SECRET || 'your-secret-key',
-  resave: false,
-  saveUninitialized: false,
-  rolling: true,
-  cookie: {
-    secure: process.env.NODE_ENV === 'production',
-    httpOnly: true,
-    maxAge: 86400000,
-    sameSite: 'lax'
-  }
-}));
-
-// --- Passport middleware (после session) ---
-app.use(passport.initialize());
-app.use(passport.session());
 
 // --- Rate Limiter ---
 const limiter = rateLimit({
