@@ -4,15 +4,35 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
 
+// Log environment variables status (without exposing actual values)
+console.log('Supabase Configuration:', {
+  url: supabaseUrl ? 'URL is set' : 'URL is missing',
+  key: supabaseKey ? 'Key is set' : 'Key is missing',
+  serviceKey: supabaseServiceKey ? 'Service Key is set' : 'Service Key is missing'
+});
+
 if (!supabaseUrl || !supabaseKey || !supabaseServiceKey) {
+  console.error('Missing Supabase environment variables. Please check your .env file or Vercel environment variables.');
+  console.error('Required variables:');
+  console.error('- SUPABASE_URL');
+  console.error('- SUPABASE_KEY');
+  console.error('- SUPABASE_SERVICE_KEY');
   throw new Error('Missing Supabase environment variables');
 }
 
 // Create Supabase client with anonymous key for client-side operations
-export const supabase = createClient(supabaseUrl, supabaseKey);
+export const supabase = createClient(supabaseUrl, supabaseKey, {
+  auth: {
+    persistSession: false
+  }
+});
 
 // Create Supabase client with service role key for server-side operations
-export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+  auth: {
+    persistSession: false
+  }
+});
 
 // Helper function to retry failed operations
 const retryOperation = async (operation, maxRetries = 3, delay = 1000) => {
