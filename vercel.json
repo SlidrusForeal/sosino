@@ -16,7 +16,55 @@
       "dest": "/server.js"
     },
     {
-      "src": "/api/(.*)",
+      "src": "/api/auth/(.*)",
+      "dest": "/server.js"
+    },
+    {
+      "src": "/api/balance",
+      "dest": "/server.js"
+    },
+    {
+      "src": "/api/deposit",
+      "dest": "/server.js"
+    },
+    {
+      "src": "/api/withdraw",
+      "dest": "/server.js"
+    },
+    {
+      "src": "/api/play/(.*)",
+      "dest": "/server.js"
+    },
+    {
+      "src": "/api/slots",
+      "dest": "/server.js"
+    },
+    {
+      "src": "/api/roulette",
+      "dest": "/server.js"
+    },
+    {
+      "src": "/api/minesweeper",
+      "dest": "/server.js"
+    },
+    {
+      "src": "/api/create-payment",
+      "dest": "/server.js"
+    },
+    {
+      "src": "/api/payment-webhook",
+      "dest": "/server.js"
+    },
+    {
+      "src": "/api/transactions",
+      "dest": "/server.js"
+    },
+    {
+      "src": "/api/admin/(.*)",
+      "dest": "/server.js"
+    },
+    {
+      "src": "/payment-success",
       "dest": "/server.js"
     },
     {
