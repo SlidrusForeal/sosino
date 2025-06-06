@@ -11,10 +11,15 @@ import axios from 'axios';
 import { Redis } from '@upstash/redis';
 import { EventEmitter } from 'events';
 
-// Initialize Redis client
+// Initialize Redis client with timeouts
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL,
   token: process.env.UPSTASH_REDIS_REST_TOKEN,
+  timeout: 5000, // 5 second timeout
+  retryStrategy: (times) => {
+    if (times > 3) return null; // Stop retrying after 3 attempts
+    return Math.min(times * 1000, 3000); // Exponential backoff
+  }
 });
 
 // Create custom session store
@@ -245,67 +250,108 @@ passport.use(new DiscordStrategy({
 // --- Маршрут для авторизации через Discord ---
 app.get('/auth/discord', (req, res, next) => {
   console.log('Starting Discord authentication...');
-  console.log('Discord OAuth2 Config:', {
-    clientID: process.env.DISCORD_CLIENT_ID ? 'Set' : 'Missing',
-    callbackURL: process.env.DISCORD_CALLBACK_URL || `${process.env.SITE_URL}/auth/discord/callback`,
-    scope: ['identify', 'email']
-  });
   
+  // Set a timeout for the authentication process
+  const authTimeout = setTimeout(() => {
+    console.error('Discord authentication timeout');
+    return res.redirect('/?error=timeout');
+  }, 10000); // 10 second timeout
+
   passport.authenticate('discord', {
     scope: ['identify', 'email'],
-    prompt: 'consent'
-  })(req, res, next);
+    prompt: 'consent',
+    state: crypto.randomBytes(32).toString('hex') // Add state parameter for security
+  })(req, res, (err) => {
+    clearTimeout(authTimeout);
+    if (err) {
+      console.error('Discord authentication error:', err);
+      return res.redirect('/?error=auth_failed');
+    }
+    next();
+  });
 });
 
 app.get('/auth/discord/callback', 
   (req, res, next) => {
     console.log('Discord callback received');
-    console.log('Callback URL:', req.originalUrl);
-    console.log('Query params:', req.query);
     
+    // Set a timeout for the callback process
+    const callbackTimeout = setTimeout(() => {
+      console.error('Discord callback timeout');
+      return res.redirect('/?error=callback_timeout');
+    }, 10000); // 10 second timeout
+
     passport.authenticate('discord', { 
-      failureRedirect: '/',
-      failureMessage: true
-    })(req, res, next);
+      failureRedirect: '/?error=auth_failed',
+      failureMessage: true,
+      session: true
+    })(req, res, (err) => {
+      clearTimeout(callbackTimeout);
+      if (err) {
+        console.error('Discord callback error:', err);
+        return res.redirect('/?error=callback_failed');
+      }
+      next();
+    });
   },
   async (req, res) => {
     try {
       console.log('Processing Discord callback...');
       if (!req.user) {
         console.error('No user in request after authentication');
-        return res.redirect('/');
+        return res.redirect('/?error=no_user');
       }
 
-      // Get user info from SPWorlds API
+      // Set a timeout for SPWorlds API call
+      const spworldsTimeout = setTimeout(() => {
+        console.error('SPWorlds API timeout');
+        return res.redirect('/?error=spworlds_timeout');
+      }, 5000); // 5 second timeout
+
+      // Get user info from SPWorlds API with timeout
       console.log('Fetching SPWorlds data for user:', req.user.discord_id);
-      const spworldsResponse = await axios.get(`https://spworlds.ru/api/public/users/${req.user.discord_id}`, {
-        headers: {
-          'Authorization': `Bearer ${Buffer.from(`${process.env.SPWORLDS_CARD_ID}:${process.env.SPWORLDS_TOKEN}`).toString('base64')}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      const spworldsResponse = await Promise.race([
+        axios.get(`https://spworlds.ru/api/public/users/${req.user.discord_id}`, {
+          headers: {
+            'Authorization': `Bearer ${Buffer.from(`${process.env.SPWORLDS_CARD_ID}:${process.env.SPWORLDS_TOKEN}`).toString('base64')}`,
+            'Content-Type': 'application/json'
+          },
+          timeout: 5000 // 5 second timeout
+        }),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('SPWorlds API timeout')), 5000)
+        )
+      ]);
+
+      clearTimeout(spworldsTimeout);
 
       const { username, uuid } = spworldsResponse.data;
       console.log('SPWorlds user data:', { username, uuid });
 
-      // Update user in Supabase
-      const { error } = await supabaseAdmin
-        .from('users')
-        .update({
-          minecraft_username: username,
-          minecraft_uuid: uuid
-        })
-        .eq('discord_id', req.user.discord_id);
+      // Update user in Supabase with timeout
+      const { error } = await Promise.race([
+        supabaseAdmin
+          .from('users')
+          .update({
+            minecraft_username: username,
+            minecraft_uuid: uuid
+          })
+          .eq('discord_id', req.user.discord_id),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Supabase update timeout')), 5000)
+        )
+      ]);
 
       if (error) {
         console.error('Error updating user:', error);
+        return res.redirect('/?error=update_failed');
       }
 
       console.log('Authentication successful, redirecting to home...');
       res.redirect('/');
     } catch (error) {
       console.error('Error in Discord callback:', error);
-      res.redirect('/');
+      res.redirect('/?error=process_failed');
     }
   }
 );
