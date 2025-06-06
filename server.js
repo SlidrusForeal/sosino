@@ -195,6 +195,40 @@ passport.deserializeUser(async (discordId, done) => {
   }
 });
 
+// Добавляем функцию быстрой проверки пользователя
+async function fastCheckUser(discordId) {
+  try {
+    // Сначала проверяем Redis
+    const cachedUser = await redis.get(`user:${discordId}`);
+    if (cachedUser) {
+      const userData = decompressData(cachedUser);
+      if (userData) {
+        return { exists: true, user: userData };
+      }
+    }
+
+    // Быстрая проверка в Supabase только по discord_id
+    const { data, error } = await supabaseAdmin
+      .from('users')
+      .select('id, discord_id, discord_username, minecraft_username, balance')
+      .eq('discord_id', discordId)
+      .single();
+
+    if (error || !data) {
+      return { exists: false };
+    }
+
+    // Кэшируем результат
+    const compressedData = await compressData(data);
+    await redis.set(`user:${discordId}`, compressedData, { ex: CACHE_CONFIG.USER_TTL });
+
+    return { exists: true, user: data };
+  } catch (err) {
+    console.error('Fast check error:', err);
+    return { exists: false };
+  }
+}
+
 passport.use(new DiscordStrategy({
   clientID: process.env.DISCORD_CLIENT_ID,
   clientSecret: process.env.DISCORD_CLIENT_SECRET,
@@ -202,65 +236,41 @@ passport.use(new DiscordStrategy({
   scope: ['identify', 'email']
 }, async (accessToken, refreshToken, profile, done) => {
   try {
-    // Проверяем кэш Redis
-    const cachedUser = await redis.get(`user:${profile.id}`);
-    if (cachedUser) {
-      const userData = decompressData(cachedUser);
-      if (userData) {
-        return done(null, userData);
-      }
+    // Быстрая проверка существующего пользователя
+    const { exists, user } = await fastCheckUser(profile.id);
+    
+    if (exists) {
+      // Если пользователь существует, сразу возвращаем его данные
+      return done(null, user);
     }
 
-    const { data: existingUser, error: selectError } = await supabaseAdmin
+    // Если пользователь новый, создаем запись
+    const { data: newUser, error: insertError } = await supabaseAdmin
       .from('users')
-      .select('*')
-      .eq('discord_id', profile.id)
+      .insert([{
+        discord_id: profile.id,
+        discord_username: profile.username,
+        minecraft_username: null,
+        balance: 0
+      }])
+      .select()
       .single();
 
-    if (selectError && selectError.code === 'PGRST116') {
-      const { data: newUser, error: insertError } = await supabaseAdmin
-        .from('users')
-        .insert([{
-          discord_id: profile.id,
-          discord_username: profile.username,
-          minecraft_username: null,
-          balance: 0
-        }])
-        .select()
-        .single();
+    if (insertError) return done(insertError);
 
-      if (insertError) return done(insertError);
-
-      // Кэшируем только необходимые поля
-      const cacheData = {
-        id: newUser.id,
-        discord_id: newUser.discord_id,
-        discord_username: newUser.discord_username,
-        minecraft_username: newUser.minecraft_username,
-        balance: newUser.balance
-      };
-
-      const compressedData = await compressData(cacheData);
-      await redis.set(`user:${profile.id}`, compressedData, { ex: CACHE_CONFIG.USER_TTL });
-      
-      return done(null, newUser);
-    }
-
-    if (selectError) return done(selectError);
-
-    // Кэшируем только необходимые поля
+    // Кэшируем нового пользователя
     const cacheData = {
-      id: existingUser.id,
-      discord_id: existingUser.discord_id,
-      discord_username: existingUser.discord_username,
-      minecraft_username: existingUser.minecraft_username,
-      balance: existingUser.balance
+      id: newUser.id,
+      discord_id: newUser.discord_id,
+      discord_username: newUser.discord_username,
+      minecraft_username: newUser.minecraft_username,
+      balance: newUser.balance
     };
 
     const compressedData = await compressData(cacheData);
     await redis.set(`user:${profile.id}`, compressedData, { ex: CACHE_CONFIG.USER_TTL });
     
-    done(null, existingUser);
+    return done(null, newUser);
   } catch (err) {
     done(err);
   }
@@ -377,28 +387,34 @@ app.get('/auth/discord/callback', (req, res, next) => {
   passport.authenticate('discord', { failureRedirect: '/?error=auth_failed' })(req, res, next);
 }, async (req, res) => {
   try {
-    // Сначала сохраняем сессию и редиректим пользователя
+    // Сразу сохраняем сессию и редиректим
     req.session.save(() => {
       res.redirect('/');
     });
 
-    // Затем асинхронно обновляем данные из SPWorlds
-    const authToken = Buffer.from(`${process.env.SPWORLDS_CARD_ID}:${process.env.SPWORLDS_TOKEN}`).toString('base64');
-    const { data } = await axios.get(`https://spworlds.ru/api/public/users/${req.user.discord_id}`, {
-      headers: { 'Authorization': `Bearer ${authToken}` },
-      timeout: 3000
-    });
+    // Асинхронно обновляем данные из SPWorlds только если нужно
+    const { minecraft_username } = req.user;
+    if (!minecraft_username) {
+      try {
+        const authToken = Buffer.from(`${process.env.SPWORLDS_CARD_ID}:${process.env.SPWORLDS_TOKEN}`).toString('base64');
+        const { data } = await axios.get(`https://spworlds.ru/api/public/users/${req.user.discord_id}`, {
+          headers: { 'Authorization': `Bearer ${authToken}` },
+          timeout: 3000
+        });
 
-    const { username, uuid } = data;
-    await supabaseAdmin.from('users')
-      .update({ minecraft_username: username, minecraft_uuid: uuid })
-      .eq('discord_id', req.user.discord_id);
+        const { username, uuid } = data;
+        await supabaseAdmin.from('users')
+          .update({ minecraft_username: username, minecraft_uuid: uuid })
+          .eq('discord_id', req.user.discord_id);
 
-    // Инвалидируем кэш пользователя после обновления данных
-    await invalidateUserCache(req.user.discord_id);
-
+        // Инвалидируем кэш только если данные обновились
+        await invalidateUserCache(req.user.discord_id);
+      } catch (err) {
+        console.error('Error updating SPWorlds data:', err);
+      }
+    }
   } catch (err) {
-    console.error('Error updating SPWorlds data:', err);
+    console.error('Auth callback error:', err);
   }
 });
 
