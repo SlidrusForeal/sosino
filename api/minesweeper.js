@@ -10,9 +10,9 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { bet, userId } = req.body;
+  const { cells, bet, userId } = req.body;
 
-  if (!userId || !bet || bet < 1) {
+  if (!userId || !bet || bet < 1 || !cells || !Array.isArray(cells)) {
     return res.status(400).json({ error: 'Invalid request' });
   }
 
@@ -37,15 +37,15 @@ export default async function handler(req, res) {
 
     if (updateError) throw updateError;
 
-    // Always return losing combination
+    // Always place mines in player's selected cells
     return res.status(200).json({
       won: false,
-      result: ['🍒', '🍋', '🍇'],
+      mines: cells,
       newBalance,
       bet
     });
   } catch (error) {
-    console.error('Slots game error:', error);
+    console.error('Minesweeper game error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 } 

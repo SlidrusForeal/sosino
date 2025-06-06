@@ -12,16 +12,32 @@
   ],
   "routes": [
     {
+      "src": "/api/play/coin",
+      "dest": "/server.js"
+    },
+    {
+      "src": "/api/minesweeper",
+      "dest": "/server.js"
+    },
+    {
+      "src": "/api/roulette",
+      "dest": "/server.js"
+    },
+    {
+      "src": "/api/slots",
+      "dest": "/server.js"
+    },
+    {
       "src": "/api/(.*)",
-      "dest": "server.js"
+      "dest": "/server.js"
     },
     {
-      "src": "/auth/(.*)",
-      "dest": "server.js"
+      "src": "/auth/discord",
+      "dest": "/server.js"
     },
     {
-      "src": "/(.*)",
-      "dest": "/public/$1"
+      "src": "/auth/discord/callback",
+      "dest": "/server.js"
     },
     {
       "src": "/payment-success",
@@ -29,6 +45,10 @@
     },
     {
       "handle": "filesystem"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/public/$1"
     },
     {
       "src": "/(.*)",

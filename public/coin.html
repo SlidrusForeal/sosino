@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Монетка - Казино SOSINO</title>
+  <link rel="stylesheet" href="styles.css">
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="logo">
+        <a href="/" class="home-link">← SOSINO</a>
+      </div>
+      <div id="user-info" class="user-info-container">
+        <!-- User info will be inserted here -->
+      </div>
+      <div id="balance-display" class="balance-display">
+        Баланс: <span id="balance">0</span> AR
+      </div>
+    </header>
+
+    <main class="main-content">
+      <div class="game-card">
+        <h2 class="game-title">Монетка</h2>
+        
+        <form id="game-form">
+          <div class="bet-controls">
+            <label for="bet">Ставка (руды):</label>
+            <div class="bet-input">
+              <button type="button" class="btn btn-small" onclick="adjustBet(-10)">-10</button>
+              <button type="button" class="btn btn-small" onclick="adjustBet(-1)">-1</button>
+              <input
+                type="number"
+                id="bet"
+                min="1"
+                max="1000"
+                value="1"
+                required
+              >
+              <button type="button" class="btn btn-small" onclick="adjustBet(1)">+1</button>
+              <button type="button" class="btn btn-small" onclick="adjustBet(10)">+10</button>
+            </div>
+          </div>
+
+          <div class="game-controls">
+            <button type="button" class="btn btn-choice" onclick="selectChoice('heads')">Орёл</button>
+            <button type="button" class="btn btn-choice" onclick="selectChoice('tails')">Решка</button>
+          </div>
+
+          <button type="submit" class="btn btn-primary">Играть</button>
+        </form>
+
+        <div id="game-status" class="result"></div>
+      </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <p>© 2024 Казино SOSINO. Все права защищены.</p>
+    </footer>
+  </div>
+
+  <script>
+    let currentBet = 1;
+    let userBalance = 0;
+    let userData = null;
+    let selectedSide = null;
+    let isSpinning = false;
+
+    // Функция для обновления UI в зависимости от состояния аутентификации
+    function updateUI(user) {
+      const infoDiv = document.getElementById('user-info');
+      const gameForm = document.getElementById('game-form');
+      const gameCard = document.querySelector('.game-card');
+
+      if (user && user.discord_username) {
+        // Пользователь авторизован
+        infoDiv.innerHTML = `
+          <div class="user-profile">
+            <img src="https://mc-heads.net/avatar/${user.minecraft_username}" alt="Minecraft Avatar" class="minecraft-avatar">
+            <div class="user-details">
+              <div class="discord-name">${user.discord_username}</div>
+              <div class="minecraft-name">${user.minecraft_username}</div>
+            </div>
+          </div>
+        `;
+        userBalance = user.balance;
+        gameForm.style.display = 'block';
+        gameCard.style.display = 'block';
+      } else {
+        // Пользователь не авторизован
+        infoDiv.innerHTML = `
+          <div class="auth-container">
+            <a href="/auth/discord" class="btn btn-primary">
+              <img src="https://assets-global.website-files.com/6257adef93867e50d84d30e2/636e0a6a49cf127bf92de1e2_icon_clyde_white_RGB.png" alt="Discord" class="discord-icon">
+              Войти через Discord
+            </a>
+          </div>
+        `;
+        gameForm.style.display = 'none';
+        gameCard.style.display = 'none';
+      }
+    }
+
+    // Функция для проверки авторизации
+    async function checkAuth() {
+      try {
+        const response = await fetch('/api/auth/user', {
+          credentials: 'include'
+        });
+        if (response.ok) {
+          userData = await response.json();
+          if (!userData || !userData.discord_username) {
+            // Если пользователь не аутентифицирован, перенаправляем на страницу авторизации
+            window.location.href = '/auth/discord';
+            return;
+          }
+          userBalance = userData.balance;
+          const balanceElement = document.getElementById('balance');
+          if (balanceElement) {
+            balanceElement.textContent = userData.balance;
+          }
+          const gameForm = document.getElementById('game-form');
+          if (gameForm) {
+            gameForm.style.display = 'block';
+          }
+        } else {
+          // Если ответ не OK, перенаправляем на страницу авторизации
+          window.location.href = '/auth/discord';
+        }
+      } catch (error) {
+        console.error('Error checking auth:', error);
+        // При ошибке также перенаправляем на страницу авторизации
+        window.location.href = '/auth/discord';
+      }
+    }
+
+    // Функция для обновления баланса
+    function updateBalance(newBalance) {
+      userBalance = newBalance;
+      document.getElementById('balance').textContent = newBalance;
+    }
+
+    // Функция для изменения ставки
+    function adjustBet(amount) {
+      currentBet = Math.max(1, Math.min(1000, currentBet + amount));
+      document.getElementById('bet').value = currentBet;
+    }
+
+    function selectChoice(choice) {
+      selectedSide = choice;
+      document.querySelectorAll('.btn-choice').forEach(btn => {
+        btn.classList.remove('selected');
+      });
+      document.querySelector(`.btn-choice[onclick="selectChoice('${choice}')"]`).classList.add('selected');
+    }
+
+    // Функция для игры
+    async function playGame() {
+      if (isSpinning) return;
+      if (!userData || !userData.discord_username) {
+        window.location.href = '/auth/discord';
+        return;
+      }
+      if (!selectedSide) {
+        alert('Выберите сторону монеты!');
+        return;
+      }
+      if (currentBet > userBalance) {
+        alert('Недостаточно средств!');
+        return;
+      }
+
+      isSpinning = true;
+      animateCoin();
+
+      try {
+        const response = await fetch('/api/play/coin', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          credentials: 'include',
+          body: JSON.stringify({
+            choice: selectedSide,
+            bet: currentBet
+          })
+        });
+
+        if (response.status === 401) {
+          window.location.reload();
+          return;
+        }
+
+        if (!response.ok) {
+          throw new Error('Game error');
+        }
+
+        const result = await response.json();
+        
+        // Обновляем баланс
+        updateBalance(result.newBalance);
+
+        // Показываем результат
+        const resultDiv = document.getElementById('game-status');
+        if (resultDiv) {
+          resultDiv.innerHTML = `
+            <div class="result ${result.won ? 'win' : 'lose'}">
+              <h3>${result.won ? 'Победа!' : 'Проигрыш'}</h3>
+              <p>Выпало: ${result.result === 'heads' ? 'Орёл' : 'Решка'}</p>
+              <p>${result.won ? 'Выигрыш: ' + (currentBet * 2) : 'Потеряно: ' + currentBet} AR</p>
+            </div>
+          `;
+        }
+
+        // Сбрасываем выбор стороны
+        selectedSide = null;
+        document.querySelectorAll('.btn-choice').forEach(btn => {
+          btn.classList.remove('selected');
+        });
+      } catch (error) {
+        console.error('Error playing game:', error);
+        alert('Произошла ошибка при игре');
+      } finally {
+        isSpinning = false;
+      }
+    }
+
+    // Добавляем обработчик отправки формы
+    document.getElementById('game-form').addEventListener('submit', function(e) {
+      e.preventDefault();
+      playGame();
+    });
+
+    // Функция для анимации монетки
+    function animateCoin() {
+      const coin = document.createElement('div');
+      coin.className = 'coin-animation';
+      document.body.appendChild(coin);
+      
+      setTimeout(() => {
+        coin.remove();
+      }, 2000);
+    }
+
+    // Проверяем аутентификацию при загрузке страницы
+    document.addEventListener('DOMContentLoaded', checkAuth);
+  </script>
+</body>
+</html>
