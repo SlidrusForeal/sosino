@@ -30,6 +30,5 @@
   "env": {
     "NODE_ENV": "production",
     "SITE_URL": "https://casino.sosmark.ru"
-  },
-  "domains": ["casino.sosmark.ru"]
+  }
 } 
