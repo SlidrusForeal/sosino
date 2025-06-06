@@ -1,0 +1,86 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "server.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "public/**",
+      "use": "@vercel/static"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/auth/(.*)",
+      "dest": "/server.js"
+    },
+    {
+      "src": "/api/auth/(.*)",
+      "dest": "/server.js"
+    },
+    {
+      "src": "/api/balance",
+      "dest": "/server.js"
+    },
+    {
+      "src": "/api/deposit",
+      "dest": "/server.js"
+    },
+    {
+      "src": "/api/withdraw",
+      "dest": "/server.js"
+    },
+    {
+      "src": "/api/play/(.*)",
+      "dest": "/server.js"
+    },
+    {
+      "src": "/api/slots",
+      "dest": "/server.js"
+    },
+    {
+      "src": "/api/roulette",
+      "dest": "/server.js"
+    },
+    {
+      "src": "/api/minesweeper",
+      "dest": "/server.js"
+    },
+    {
+      "src": "/api/create-payment",
+      "dest": "/server.js"
+    },
+    {
+      "src": "/api/payment-webhook",
+      "dest": "/server.js"
+    },
+    {
+      "src": "/api/transactions",
+      "dest": "/server.js"
+    },
+    {
+      "src": "/api/admin/(.*)",
+      "dest": "/server.js"
+    },
+    {
+      "src": "/payment-success",
+      "dest": "/server.js"
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/public/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/public/index.html"
+    }
+  ],
+  "env": {
+    "NODE_ENV": "production",
+    "SITE_URL": "https://casino.sosmark.ru"
+  }
+} 
