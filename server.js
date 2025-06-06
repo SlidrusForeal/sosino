@@ -27,71 +27,16 @@ import { body, validationResult } from 'express-validator';
 // --- Инициализация приложения ---
 const app = express();
 
-// Настройка доверия прокси
-app.set('trust proxy', 1);
-
-// Включаем сжатие для всех ответов
-app.use(compression());
-
-// Оптимизация статических файлов
-app.use(express.static('public', {
-  maxAge: '1d',
-  etag: true,
-  lastModified: true,
-  setHeaders: (res, path) => {
-    if (path.endsWith('.html')) {
-      res.setHeader('Cache-Control', 'no-cache');
-    } else if (path.endsWith('.css') || path.endsWith('.js')) {
-      res.setHeader('Cache-Control', 'public, max-age=86400');
-    }
-  }
-}));
-
-// Базовые middleware
-app.use(express.json());
-app.use(cookieParser());
-
 // --- Инициализация Redis клиента ---
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL,
   token: process.env.UPSTASH_REDIS_REST_TOKEN,
-  timeout: 3000, // Уменьшаем таймаут
+  timeout: 3000,
   retryStrategy: (times) => {
-    if (times > 2) return null; // Максимум 2 попытки
-    return Math.min(times * 500, 1000); // Уменьшаем время между попытками
+    if (times > 2) return null;
+    return Math.min(times * 500, 1000);
   }
 });
-
-// Добавляем константы для кэширования
-const CACHE_CONFIG = {
-  USER_TTL: 1800, // 30 минут вместо 1 часа
-  MAX_CACHE_SIZE: 1024 * 50, // 50KB максимальный размер кэша на пользователя
-  COMPRESS_THRESHOLD: 1024 // Сжимать данные больше 1KB
-};
-
-// Функция для сжатия данных перед кэшированием
-async function compressData(data) {
-  if (JSON.stringify(data).length > CACHE_CONFIG.COMPRESS_THRESHOLD) {
-    const compressed = await compression.gzip(JSON.stringify(data));
-    return Buffer.from(compressed).toString('base64');
-  }
-  return JSON.stringify(data);
-}
-
-// Функция для распаковки данных
-function decompressData(data) {
-  try {
-    if (data.startsWith('gzip:')) {
-      const compressed = Buffer.from(data.slice(5), 'base64');
-      const decompressed = compression.gunzipSync(compressed);
-      return JSON.parse(decompressed.toString());
-    }
-    return JSON.parse(data);
-  } catch (err) {
-    console.error('Error decompressing data:', err);
-    return null;
-  }
-}
 
 // --- Пользовательский RedisSessionStore ---
 class RedisSessionStore extends EventEmitter {
@@ -120,66 +65,34 @@ class RedisSessionStore extends EventEmitter {
       this.emit('disconnect', err);
     }
   }
-
-  async touch(sid, sessionData) {
-    // Продлевает время жизни без изменения данных
-    try {
-      const existing = await this.get(sid);
-      if (existing) {
-        await this.set(sid, existing);
-      }
-    } catch (err) {
-      this.emit('disconnect', err);
-    }
-  }
-
-  async regenerate(req, fn) {
-    try {
-      const oldSid = req.sessionID;
-      const newSid = crypto.randomBytes(32).toString('hex');
-      const oldSession = await this.get(oldSid);
-      if (oldSession) {
-        await this.set(newSid, oldSession);
-      }
-      await this.destroy(oldSid);
-      req.sessionID = newSid;
-      fn(null);
-    } catch (err) {
-      fn(err);
-    }
-  }
-
-  async all(callback) {
-    try {
-      const keys = await redis.keys('sess:*');
-      const sessions = await Promise.all(
-        keys.map(key => this.get(key.replace('sess:', '')))
-      );
-      callback(null, sessions.filter(Boolean));
-    } catch (err) {
-      callback(err);
-    }
-  }
-
-  async length(callback) {
-    try {
-      const keys = await redis.keys('sess:*');
-      callback(null, keys.length);
-    } catch (err) {
-      callback(err);
-    }
-  }
-
-  async clear(callback) {
-    try {
-      const keys = await redis.keys('sess:*');
-      await Promise.all(keys.map(key => redis.del(key)));
-      callback(null);
-    } catch (err) {
-      callback(err);
-    }
-  }
 }
+
+// Инициализируем хранилище сессий
+const sessionStore = new RedisSessionStore();
+
+// Настройка доверия прокси
+app.set('trust proxy', 1);
+
+// Включаем сжатие для всех ответов
+app.use(compression());
+
+// Оптимизация статических файлов
+app.use(express.static('public', {
+  maxAge: '1d',
+  etag: true,
+  lastModified: true,
+  setHeaders: (res, path) => {
+    if (path.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-cache');
+    } else if (path.endsWith('.css') || path.endsWith('.js')) {
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+    }
+  }
+}));
+
+// Базовые middleware
+app.use(express.json());
+app.use(cookieParser());
 
 // --- Passport конфигурация ---
 passport.serializeUser((user, done) => {
@@ -442,7 +355,7 @@ passport.use(new DiscordStrategy({
 
 // --- Session middleware (должен быть перед passport) ---
 app.use(session({
-  store: new RedisSessionStore(),
+  store: sessionStore,
   secret: process.env.SESSION_SECRET || 'your-secret-key',
   resave: false,
   saveUninitialized: false,
