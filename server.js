@@ -22,7 +22,7 @@ class SupabaseStore extends session.Store {
         .from('sessions')
         .select('*')
         .eq('sid', sid)
-        .single();
+        .maybeSingle(); // Use maybeSingle instead of single
 
       if (error) {
         console.error('Session get error:', error);
@@ -39,9 +39,16 @@ class SupabaseStore extends session.Store {
         return callback(null, null);
       }
 
-      callback(null, JSON.parse(data.session));
+      try {
+        const session = JSON.parse(data.session);
+        callback(null, session);
+      } catch (parseError) {
+        console.error('Error parsing session data:', parseError);
+        callback(null, null);
+      }
     } catch (err) {
-      callback(err);
+      console.error('Unexpected error in session get:', err);
+      callback(null, null);
     }
   }
 
@@ -54,6 +61,8 @@ class SupabaseStore extends session.Store {
           sid,
           session: JSON.stringify(session),
           expires_at: expiresAt.toISOString()
+        }, {
+          onConflict: 'sid'
         });
 
       if (error) {
@@ -63,6 +72,7 @@ class SupabaseStore extends session.Store {
 
       callback();
     } catch (err) {
+      console.error('Unexpected error in session set:', err);
       callback(err);
     }
   }
@@ -81,6 +91,30 @@ class SupabaseStore extends session.Store {
 
       callback();
     } catch (err) {
+      console.error('Unexpected error in session destroy:', err);
+      callback(err);
+    }
+  }
+
+  // Add touch method to update session expiry
+  async touch(sid, session, callback) {
+    try {
+      const expiresAt = new Date(Date.now() + this.ttl * 1000);
+      const { error } = await supabaseAdmin
+        .from('sessions')
+        .update({
+          expires_at: expiresAt.toISOString()
+        })
+        .eq('sid', sid);
+
+      if (error) {
+        console.error('Session touch error:', error);
+        return callback(error);
+      }
+
+      callback();
+    } catch (err) {
+      console.error('Unexpected error in session touch:', err);
       callback(err);
     }
   }
@@ -104,6 +138,7 @@ app.use(session({
   secret: process.env.SESSION_SECRET || 'your-secret-key',
   resave: true,
   saveUninitialized: true,
+  rolling: true, // Enable rolling sessions
   cookie: {
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
