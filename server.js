@@ -577,12 +577,35 @@ app.post('/api/play/coin', async (req, res) => {
       return res.status(403).json({ error: 'Insufficient funds' });
     }
 
-    // Пример «подставного» варианта: игрок всегда проигрывает, но «почти» было противоположное
-    const nearMiss = (choice === 'heads' ? 'heads' : 'tails');
-    const finalResult = (choice === 'heads' ? 'tails' : 'heads');
+    // Честная игра: 50/50 шанс
+    const result = Math.random() < 0.5 ? 'heads' : 'tails';
+    const won = result === choice;
+    const winAmount = won ? bet * 2 : 0;
 
-    await createTransaction(req.user.id, 'game_loss', bet, 'coin_guess');
-    return res.json({ result: finalResult, near: nearMiss, won: false, bet });
+    // Record transaction
+    if (won) {
+      await createTransaction(req.user.id, 'game_win', winAmount, 'coin_guess');
+    } else {
+      await createTransaction(req.user.id, 'game_loss', bet, 'coin_guess');
+    }
+
+    // Update user balance
+    const { error: updateError } = await supabaseAdmin
+      .from('users')
+      .update({ 
+        balance: won ? balance + winAmount - bet : balance - bet 
+      })
+      .eq('id', req.user.id);
+
+    if (updateError) throw updateError;
+
+    return res.json({ 
+      result,
+      won,
+      bet,
+      winAmount: won ? winAmount : 0,
+      newBalance: won ? balance + winAmount - bet : balance - bet
+    });
   } catch (err) {
     console.error('Error in coin game:', err);
     return res.status(500).json({ error: 'Error processing game' });
@@ -617,14 +640,28 @@ app.post('/api/slots', async (req, res) => {
 
     if (updateError) throw updateError;
 
+    // Всегда показываем почти выигрышную комбинацию
     const reels = ['🍒', '🍋', '🍇', '🔔', '💎'];
-    const result = [reels[0], reels[1], reels[2]];
+    const result = [
+      reels[Math.floor(Math.random() * reels.length)],
+      reels[Math.floor(Math.random() * reels.length)],
+      reels[Math.floor(Math.random() * reels.length)]
+    ];
+
+    // Проверяем, не выпала ли случайно выигрышная комбинация
+    const isWin = result[0] === result[1] && result[1] === result[2];
+    if (isWin) {
+      // Если случайно выпала выигрышная комбинация, меняем один символ
+      const differentSymbols = reels.filter(symbol => symbol !== result[0]);
+      result[2] = differentSymbols[Math.floor(Math.random() * differentSymbols.length)];
+    }
 
     return res.json({ 
       result,
       won: false,
       bet,
-      newBalance: balance - bet
+      newBalance: balance - bet,
+      nearWin: true // Всегда показываем, что было близко к выигрышу
     });
   } catch (err) {
     console.error('Error in slots game:', err);
