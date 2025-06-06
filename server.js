@@ -24,13 +24,14 @@ app.use(express.json());
 // 2) Сессии
 app.use(session({
   secret: process.env.SESSION_SECRET || 'your-secret-key',
-  resave: false,
-  saveUninitialized: false,
+  resave: true,
+  saveUninitialized: true,
   cookie: {
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
-    sameSite: 'lax'
+    sameSite: 'lax',
+    domain: process.env.NODE_ENV === 'production' ? '.sosmark.ru' : undefined
   }
 }));
 
@@ -59,6 +60,11 @@ passport.deserializeUser(async (discordId, done) => {
     if (error) {
       console.error('Error deserializing user:', error); // Debug log
       return done(error);
+    }
+
+    if (!user) {
+      console.error('User not found during deserialization'); // Debug log
+      return done(null, false);
     }
 
     console.log('Deserialized user:', user); // Debug log
