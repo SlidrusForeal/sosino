@@ -127,12 +127,24 @@ passport.serializeUser((user, done) => {
 
 passport.deserializeUser(async (discordId, done) => {
   try {
+    // Проверяем кэш Redis
+    const cachedUser = await redis.get(`user:${discordId}`);
+    if (cachedUser) {
+      return done(null, JSON.parse(cachedUser));
+    }
+
+    // Если нет в кэше, получаем из БД
     const { data: user, error } = await supabaseAdmin
       .from('users')
       .select('*')
       .eq('discord_id', discordId)
       .single();
+
     if (error || !user) return done(error || new Error('User not found'));
+
+    // Кэшируем пользователя на 1 час
+    await redis.set(`user:${discordId}`, JSON.stringify(user), { ex: 3600 });
+    
     done(null, user);
   } catch (err) {
     done(err);
@@ -146,6 +158,12 @@ passport.use(new DiscordStrategy({
   scope: ['identify', 'email']
 }, async (accessToken, refreshToken, profile, done) => {
   try {
+    // Проверяем кэш Redis
+    const cachedUser = await redis.get(`user:${profile.id}`);
+    if (cachedUser) {
+      return done(null, JSON.parse(cachedUser));
+    }
+
     const { data: existingUser, error: selectError } = await supabaseAdmin
       .from('users')
       .select('*')
@@ -163,15 +181,34 @@ passport.use(new DiscordStrategy({
         }])
         .select()
         .single();
-      return insertError ? done(insertError) : done(null, newUser);
+
+      if (insertError) return done(insertError);
+
+      // Кэшируем нового пользователя
+      await redis.set(`user:${profile.id}`, JSON.stringify(newUser), { ex: 3600 });
+      
+      return done(null, newUser);
     }
 
     if (selectError) return done(selectError);
+
+    // Кэшируем существующего пользователя
+    await redis.set(`user:${profile.id}`, JSON.stringify(existingUser), { ex: 3600 });
+    
     done(null, existingUser);
   } catch (err) {
     done(err);
   }
 }));
+
+// Добавляем функцию для инвалидации кэша пользователя
+async function invalidateUserCache(discordId) {
+  try {
+    await redis.del(`user:${discordId}`);
+  } catch (err) {
+    console.error('Error invalidating user cache:', err);
+  }
+}
 
 // --- Инициализация приложения ---
 const app = express();
@@ -257,18 +294,28 @@ app.get('/auth/discord/callback', (req, res, next) => {
   passport.authenticate('discord', { failureRedirect: '/?error=auth_failed' })(req, res, next);
 }, async (req, res) => {
   try {
-    // Обновление данных пользователя из SPWorlds
+    // Сначала сохраняем сессию и редиректим пользователя
+    req.session.save(() => {
+      res.redirect('/');
+    });
+
+    // Затем асинхронно обновляем данные из SPWorlds
     const authToken = Buffer.from(`${process.env.SPWORLDS_CARD_ID}:${process.env.SPWORLDS_TOKEN}`).toString('base64');
     const { data } = await axios.get(`https://spworlds.ru/api/public/users/${req.user.discord_id}`, {
-      headers: { 'Authorization': `Bearer ${authToken}` }, timeout: 5000
+      headers: { 'Authorization': `Bearer ${authToken}` },
+      timeout: 3000
     });
+
     const { username, uuid } = data;
     await supabaseAdmin.from('users')
       .update({ minecraft_username: username, minecraft_uuid: uuid })
       .eq('discord_id', req.user.discord_id);
-    req.session.save(() => res.redirect('/'));
+
+    // Инвалидируем кэш пользователя после обновления данных
+    await invalidateUserCache(req.user.discord_id);
+
   } catch (err) {
-    res.redirect('/?error=process_failed');
+    console.error('Error updating SPWorlds data:', err);
   }
 });
 
