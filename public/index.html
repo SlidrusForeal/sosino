@@ -79,68 +79,95 @@
   </div>
 
   <script>
-    // Get user info and balance
-    fetch('/api/auth/user')
-      .then(res => {
+    // Функция для обновления UI в зависимости от состояния аутентификации
+    function updateUI(user) {
+      const infoDiv = document.getElementById('user-info');
+      const balanceDisplay = document.getElementById('balance-display');
+      const balanceSection = document.querySelector('.balance-section');
+      const gamesSection = document.querySelector('.games-section');
+
+      if (user && user.discord_username) {
+        // Пользователь авторизован
+        infoDiv.innerHTML = `
+          <div class="user-profile">
+            <img src="https://mc-heads.net/avatar/${user.minecraft_username}" alt="Minecraft Avatar" class="minecraft-avatar">
+            <div class="user-details">
+              <div class="discord-name">${user.discord_username}</div>
+              <div class="minecraft-name">${user.minecraft_username}</div>
+            </div>
+          </div>
+        `;
+        balanceDisplay.textContent = user.balance;
+        balanceSection.style.display = 'block';
+        gamesSection.style.display = 'block';
+      } else {
+        // Пользователь не авторизован
+        infoDiv.innerHTML = `
+          <div class="auth-container">
+            <a href="/auth/discord" class="btn btn-primary">
+              <img src="https://assets-global.website-files.com/6257adef93867e50d84d30e2/636e0a6a49cf127bf92de1e2_icon_clyde_white_RGB.png" alt="Discord" class="discord-icon">
+              Войти через Discord
+            </a>
+          </div>
+        `;
+        balanceSection.style.display = 'none';
+        gamesSection.style.display = 'none';
+      }
+    }
+
+    // Функция для проверки аутентификации
+    async function checkAuth() {
+      try {
+        const res = await fetch('/api/auth/user');
         if (!res.ok) {
           throw new Error('Unauthorized');
         }
-        return res.json();
-      })
-      .then(user => {
-        const infoDiv = document.getElementById('user-info');
-        const balanceDisplay = document.getElementById('balance-display');
-
-        if (user.discord_username) {
-          infoDiv.innerHTML = `
-            <div class="user-profile">
-              <img src="https://mc-heads.net/avatar/${user.minecraft_username}" alt="Minecraft Avatar" class="minecraft-avatar">
-              <div class="user-details">
-                <div class="discord-name">${user.discord_username}</div>
-                <div class="minecraft-name">${user.minecraft_username}</div>
-              </div>
-            </div>
-          `;
-          balanceDisplay.textContent = user.balance;
-        } else {
-          infoDiv.innerHTML = '<a href="/auth/discord" class="btn btn-primary">Войти через Discord</a>';
-        }
-      })
-      .catch(err => {
+        const user = await res.json();
+        updateUI(user);
+      } catch (err) {
         console.error('Auth error:', err);
-        const infoDiv = document.getElementById('user-info');
-        infoDiv.innerHTML = '<a href="/auth/discord" class="btn btn-primary">Войти через Discord</a>';
-      });
-
-    // Handle deposit form
-    document.getElementById('deposit-form').addEventListener('submit', async e => {
-      e.preventDefault();
-      const amount = parseInt(document.getElementById('deposit-amount').value, 10);
-      const statusEl = document.getElementById('deposit-status');
-
-      try {
-        const res = await fetch('/api/deposit', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ amount })
-        });
-
-        const data = await res.json();
-        if (res.ok) {
-          statusEl.className = 'status-message success';
-          statusEl.innerText = data.message;
-          // Update balance display
-          const balanceDisplay = document.getElementById('balance-display');
-          balanceDisplay.textContent = parseInt(balanceDisplay.textContent) + amount;
-        } else {
-          statusEl.className = 'status-message error';
-          statusEl.innerText = data.error || 'Ошибка';
-        }
-      } catch (error) {
-        statusEl.className = 'status-message error';
-        statusEl.innerText = 'Ошибка при обработке запроса';
+        updateUI(null);
       }
-    });
+    }
+
+    // Проверяем аутентификацию при загрузке страницы
+    checkAuth();
+
+    // Периодически проверяем состояние аутентификации
+    setInterval(checkAuth, 30000); // каждые 30 секунд
+
+    // Обработчик для формы депозита
+    const depositForm = document.getElementById('deposit-form');
+    if (depositForm) {
+      depositForm.addEventListener('submit', async e => {
+        e.preventDefault();
+        const amount = parseInt(document.getElementById('deposit-amount').value, 10);
+        const statusEl = document.getElementById('deposit-status');
+
+        try {
+          const res = await fetch('/api/deposit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ amount })
+          });
+
+          const data = await res.json();
+          if (res.ok) {
+            statusEl.className = 'status-message success';
+            statusEl.innerText = data.message;
+            // Обновляем отображение баланса
+            const balanceDisplay = document.getElementById('balance-display');
+            balanceDisplay.textContent = parseInt(balanceDisplay.textContent) + amount;
+          } else {
+            statusEl.className = 'status-message error';
+            statusEl.innerText = data.error || 'Ошибка';
+          }
+        } catch (error) {
+          statusEl.className = 'status-message error';
+          statusEl.innerText = 'Ошибка при обработке запроса';
+        }
+      });
+    }
   </script>
 </body>
 </html>

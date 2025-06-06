@@ -3,55 +3,120 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Монетка - Казино SPWorlds</title>
+  <title>Монетка - Казино SOSINO</title>
   <link rel="stylesheet" href="styles.css">
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
   <div class="container">
-    <div class="header">
-      <a href="/" class="btn">← Назад</a>
-    </div>
+    <!-- Header -->
+    <header class="header">
+      <div class="logo">
+        <a href="/" class="home-link">← SOSINO</a>
+      </div>
+      <div id="user-info" class="user-info-container">
+        <!-- User info will be inserted here -->
+      </div>
+    </header>
 
-    <div class="game-card">
-      <h2 class="result">Монетка</h2>
-      
-      <form id="game-form">
-        <div class="bet-controls">
-          <label for="bet">Ставка (АР):</label>
-          <div class="bet-input">
-            <button type="button" class="btn btn-small" onclick="adjustBet(-10)">-10</button>
-            <button type="button" class="btn btn-small" onclick="adjustBet(-1)">-1</button>
-            <input
-              type="number"
-              id="bet"
-              min="1"
-              max="1000"
-              value="1"
-              required
-            >
-            <button type="button" class="btn btn-small" onclick="adjustBet(1)">+1</button>
-            <button type="button" class="btn btn-small" onclick="adjustBet(10)">+10</button>
+    <main class="main-content">
+      <div class="game-card">
+        <h2 class="game-title">Монетка</h2>
+        
+        <form id="game-form">
+          <div class="bet-controls">
+            <label for="bet">Ставка (руды):</label>
+            <div class="bet-input">
+              <button type="button" class="btn btn-small" onclick="adjustBet(-10)">-10</button>
+              <button type="button" class="btn btn-small" onclick="adjustBet(-1)">-1</button>
+              <input
+                type="number"
+                id="bet"
+                min="1"
+                max="1000"
+                value="1"
+                required
+              >
+              <button type="button" class="btn btn-small" onclick="adjustBet(1)">+1</button>
+              <button type="button" class="btn btn-small" onclick="adjustBet(10)">+10</button>
+            </div>
           </div>
-        </div>
 
-        <div class="game-controls">
-          <button type="button" class="btn btn-choice" onclick="selectChoice('heads')">Орёл</button>
-          <button type="button" class="btn btn-choice" onclick="selectChoice('tails')">Решка</button>
-        </div>
+          <div class="game-controls">
+            <button type="button" class="btn btn-choice" onclick="selectChoice('heads')">Орёл</button>
+            <button type="button" class="btn btn-choice" onclick="selectChoice('tails')">Решка</button>
+          </div>
 
-        <button type="submit" class="btn btn-primary">Играть</button>
-      </form>
+          <button type="submit" class="btn btn-primary">Играть</button>
+        </form>
 
-      <div id="game-status" class="result"></div>
-    </div>
+        <div id="game-status" class="result"></div>
+      </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <p>© 2024 Казино SOSINO. Все права защищены.</p>
+    </footer>
   </div>
 
   <script>
     let selectedChoice = null;
+    let userBalance = 0;
+
+    // Функция для обновления UI в зависимости от состояния аутентификации
+    function updateUI(user) {
+      const infoDiv = document.getElementById('user-info');
+      const gameForm = document.getElementById('game-form');
+      const gameCard = document.querySelector('.game-card');
+
+      if (user && user.discord_username) {
+        // Пользователь авторизован
+        infoDiv.innerHTML = `
+          <div class="user-profile">
+            <img src="https://mc-heads.net/avatar/${user.minecraft_username}" alt="Minecraft Avatar" class="minecraft-avatar">
+            <div class="user-details">
+              <div class="discord-name">${user.discord_username}</div>
+              <div class="minecraft-name">${user.minecraft_username}</div>
+            </div>
+          </div>
+        `;
+        userBalance = user.balance;
+        gameForm.style.display = 'block';
+        gameCard.style.display = 'block';
+      } else {
+        // Пользователь не авторизован
+        infoDiv.innerHTML = `
+          <div class="auth-container">
+            <a href="/auth/discord" class="btn btn-primary">
+              <img src="https://assets-global.website-files.com/6257adef93867e50d84d30e2/636e0a6a49cf127bf92de1e2_icon_clyde_white_RGB.png" alt="Discord" class="discord-icon">
+              Войти через Discord
+            </a>
+          </div>
+        `;
+        gameForm.style.display = 'none';
+        gameCard.style.display = 'none';
+      }
+    }
+
+    // Функция для проверки аутентификации
+    async function checkAuth() {
+      try {
+        const res = await fetch('/api/auth/user');
+        if (!res.ok) {
+          throw new Error('Unauthorized');
+        }
+        const user = await res.json();
+        updateUI(user);
+      } catch (err) {
+        console.error('Auth error:', err);
+        updateUI(null);
+      }
+    }
 
     function adjustBet(amount) {
       const betInput = document.getElementById('bet');
-      const newValue = Math.max(1, Math.min(1000, parseInt(betInput.value) + amount));
+      const newValue = Math.max(1, Math.min(userBalance, parseInt(betInput.value) + amount));
       betInput.value = newValue;
     }
 
@@ -77,9 +142,9 @@
       const statusEl = document.getElementById('game-status');
       const submitBtn = e.target.querySelector('button[type="submit"]');
 
-      if (bet < 1 || bet > 1000) {
+      if (bet < 1 || bet > userBalance) {
         statusEl.className = 'result lose';
-        statusEl.textContent = 'Ставка должна быть от 1 до 1000 АР';
+        statusEl.textContent = `Ставка должна быть от 1 до ${userBalance} руды`;
         return;
       }
 
@@ -103,8 +168,10 @@
         if (res.ok) {
           statusEl.className = data.won ? 'result win' : 'result lose';
           statusEl.textContent = data.won 
-            ? `Поздравляем! Вы выиграли ${data.bet * 2} АР!`
-            : `Увы, выпала ${data.result === 'heads' ? 'орёл' : 'решка'}. Потеряно ${data.bet} АР`;
+            ? `Поздравляем! Вы выиграли ${data.bet * 2} руды!`
+            : `Увы, выпала ${data.result === 'heads' ? 'орёл' : 'решка'}. Потеряно ${data.bet} руды`;
+          // Обновляем баланс после игры
+          userBalance = data.newBalance;
         } else {
           statusEl.className = 'result lose';
           statusEl.textContent = data.error || 'Ошибка при игре';
@@ -117,6 +184,12 @@
         submitBtn.textContent = 'Играть';
       }
     });
+
+    // Проверяем аутентификацию при загрузке страницы
+    checkAuth();
+
+    // Периодически проверяем состояние аутентификации
+    setInterval(checkAuth, 30000); // каждые 30 секунд
   </script>
 </body>
 </html>
