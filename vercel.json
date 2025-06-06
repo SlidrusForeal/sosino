@@ -41,6 +41,6 @@
   ],
   "env": {
     "NODE_ENV": "production",
-    "SITE_URL": "https://sosino.vercel.app"
+    "SITE_URL": "https://casino.sosmark.ru"
   }
 } 
